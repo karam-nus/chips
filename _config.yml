@@ -1,0 +1,124 @@
+title: "Chips — The Complete Guide"
+description: "From Sand to Supercomputers: a first-principles guide to chip design and architecture for AI/ML model-optimization practitioners. Transistors, datatypes, accelerators, and the hardware reasons behind every quantization and sparsity decision."
+baseurl: "/chips"
+url: "https://karam-nus.github.io"
+
+markdown: kramdown
+highlighter: rouge
+
+kramdown:
+  input: GFM
+  hard_wrap: false
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    css_class: "highlight"
+    span:
+      line_numbers: false
+    block:
+      line_numbers: true
+
+plugins:
+  - jekyll-relative-links
+
+relative_links:
+  enabled: true
+  collections: false
+
+include:
+  - README.md
+
+navigation:
+  - title: "Home"
+    url: "/"
+  - title: "01 — What Is a Chip?"
+    url: "/01_what_is_a_chip"
+  - title: "02 — Transistors to Logic"
+    url: "/02_transistors_to_logic"
+  - title: "03 — Number Representation"
+    url: "/03_number_representation"
+  - title: "04 — Anatomy of a Processor"
+    url: "/04_anatomy_of_a_processor"
+  - title: "05 — Instruction Sets"
+    url: "/05_instruction_sets"
+  - title: "06 — Languages & Nomenclature"
+    url: "/06_languages_and_nomenclature"
+  - title: "07 — Types of Chips (Taxonomy)"
+    url: "/07_types_of_chips_taxonomy"
+  - title: "08 — Parallel Processing"
+    url: "/08_parallel_processing"
+  - title: "09 — Memory Types"
+    url: "/09_memory_types"
+  - title: "10 — Memory Management"
+    url: "/10_memory_management"
+  - title: "11 — Memory Wall & Bandwidth"
+    url: "/11_memory_wall_and_bandwidth"
+  - title: "12 — Buses & Interconnects"
+    url: "/12_buses_and_interconnects"
+  - title: "13 — Reliability & Fault Tolerance"
+    url: "/13_reliability_and_fault_tolerance"
+  - title: "14 — CPUs"
+    url: "/14_cpus"
+  - title: "15 — GPUs"
+    url: "/15_gpus"
+  - title: "16 — TPUs & Systolic Arrays"
+    url: "/16_tpus_and_systolic_arrays"
+  - title: "17 — NPUs & Edge AI"
+    url: "/17_npus_and_edge_ai"
+  - title: "18 — DSPs"
+    url: "/18_dsps"
+  - title: "19 — ISPs"
+    url: "/19_isps"
+  - title: "20 — FPGAs"
+    url: "/20_fpgas"
+  - title: "21 — ASICs"
+    url: "/21_asics"
+  - title: "22 — SoCs"
+    url: "/22_socs"
+  - title: "23 — Number Formats Deep Dive"
+    url: "/23_number_formats_deep_dive"
+  - title: "24 — Datatypes & Silicon"
+    url: "/24_datatypes_and_silicon"
+  - title: "25 — Quantization (Hardware View)"
+    url: "/25_quantization_hardware_view"
+  - title: "26 — Sparsity (Hardware View)"
+    url: "/26_sparsity_hardware_view"
+  - title: "27 — Why GPUs Won AI"
+    url: "/27_why_gpus_won_ai"
+  - title: "28 — Multi-GPU & Distributed Training"
+    url: "/28_multi_gpu_and_distributed_training"
+  - title: "29 — Memory Hierarchy in Action"
+    url: "/29_memory_hierarchy_in_action"
+  - title: "30 — Datatypes Drive Optimization"
+    url: "/30_datatypes_drive_optimization_choices"
+  - title: "31 — Chip Design Flow"
+    url: "/31_chip_design_flow"
+  - title: "32 — Verification & Validation"
+    url: "/32_chip_verification_and_validation"
+  - title: "33 — Design-Paradigm Wars"
+    url: "/33_design_paradigm_wars"
+  - title: "34 — Generational Improvements"
+    url: "/34_generational_improvements"
+  - title: "35 — Where the Industry Is Headed"
+    url: "/35_where_the_industry_is_headed"
+  - title: "Appendix A — How Chips Are Made"
+    url: "/appendix_a_how_chips_are_made"
+  - title: "Appendix B — Foundry Ecosystem"
+    url: "/appendix_b_foundry_ecosystem"
+  - title: "Appendix C — Photonics"
+    url: "/appendix_c_photonics"
+  - title: "Appendix D — Power & Thermals"
+    url: "/appendix_d_power_and_thermals"
+  - title: "Appendix E — Packaging & Integration"
+    url: "/appendix_e_packaging"
+  - title: "Appendix F — Glossary"
+    url: "/appendix_f_glossary"
+  - title: "Appendix G — Resources"
+    url: "/appendix_g_resources"
+  - title: "Appendix H — The Life of a Running Computer"
+    url: "/appendix_h_how_a_computer_runs"
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: "default"
