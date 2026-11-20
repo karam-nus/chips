@@ -385,7 +385,7 @@ Understanding *why* GPUs won reframes nearly every architecture and optimization
 | Roofline: An Insightful Visual Performance Model | Williams, Waterman & Patterson, 2009 | [doi.org/10.1145/1498765.1498785](https://doi.org/10.1145/1498765.1498785) | Ridge point and arithmetic intensity |
 | NVIDIA H100 Tensor Core GPU Architecture | NVIDIA, 2022 | [resources.nvidia.com/en-us-tensor-core](https://resources.nvidia.com/en-us-tensor-core) | Dense BF16 throughput and HBM3 bandwidth |
 | Anthropic to expand use of Google Cloud TPUs | Google Cloud / Anthropic, Oct 2025 | [anthropic.com/news/expanding-our-use-of-googl…](https://www.anthropic.com/news/expanding-our-use-of-google-cloud-tpus-and-services) | Up to one million TPUs for an outside lab |
-| AMD and OpenAI strategic partnership | OpenAI / AMD, Oct 2025 | [ir.amd.com/news-events/press-releases/detail/…](https://openai.com/index/openai-amd-strategic-partnership) | 6 GW of Instinct GPUs starting with MI450 |
+| AMD and OpenAI strategic partnership | OpenAI / AMD, Oct 2025 | [openai.com/index/openai-amd-strategic-partnership](https://openai.com/index/openai-amd-strategic-partnership) | 6 GW of Instinct GPUs starting with MI450 |
 | Amazon EC2 Trn3 UltraServers | AWS, Dec 2025 | [aws.amazon.com/about-aws/whats-new/2025/12/am…](https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-ec2-trn3-ultraservers) | Trainium3 general availability |
 
 ---
