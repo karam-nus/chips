@@ -14,14 +14,14 @@ Eight small instruments, one per load-bearing idea in this guide. Each one is a 
 
 <div class="diagram">
 <div class="diagram-grid cols-4">
-  <div class="diagram-card accent"><div class="card-title">Roofline</div><div class="card-desc">Compute- or memory-bound? <a href="./11_memory_wall_and_bandwidth.md">Ch 11</a></div></div>
-  <div class="diagram-card purple"><div class="card-title">Bit explorer</div><div class="card-desc">FP32 → FP4, bit by bit. <a href="./23_number_formats_deep_dive.md">Ch 23</a></div></div>
-  <div class="diagram-card cyan"><div class="card-title">Will it fit?</div><div class="card-desc">Weights, KV cache, optimizer state. <a href="./29_memory_hierarchy_in_action.md">Ch 29</a></div></div>
-  <div class="diagram-card orange"><div class="card-title">Systolic array</div><div class="card-desc">A matmul, one cycle at a time. <a href="./16_tpus_and_systolic_arrays.md">Ch 16</a></div></div>
-  <div class="diagram-card green"><div class="card-title">Wafer yield</div><div class="card-desc">Why big dies cost so much. <a href="./appendix_a_how_chips_are_made.md">App A</a></div></div>
-  <div class="diagram-card pink"><div class="card-title">2:4 sparsity</div><div class="card-desc">What the sparse tensor core stores. <a href="./26_sparsity_hardware_view.md">Ch 26</a></div></div>
-  <div class="diagram-card yellow"><div class="card-title">Quantization</div><div class="card-desc">Bits, groups, outliers, MXFP4 vs NVFP4. <a href="./25_quantization_hardware_view.md">Ch 25</a></div></div>
-  <div class="diagram-card blue"><div class="card-title">Atlas</div><div class="card-desc">26 accelerators, sortable. <a href="./atlas.md">Atlas</a></div></div>
+  <div class="diagram-card accent"><div class="card-title">Roofline</div><div class="card-desc">Compute- or memory-bound? <a href="./11_memory_wall_and_bandwidth.html">Ch 11</a></div></div>
+  <div class="diagram-card purple"><div class="card-title">Bit explorer</div><div class="card-desc">FP32 → FP4, bit by bit. <a href="./23_number_formats_deep_dive.html">Ch 23</a></div></div>
+  <div class="diagram-card cyan"><div class="card-title">Will it fit?</div><div class="card-desc">Weights, KV cache, optimizer state. <a href="./29_memory_hierarchy_in_action.html">Ch 29</a></div></div>
+  <div class="diagram-card orange"><div class="card-title">Systolic array</div><div class="card-desc">A matmul, one cycle at a time. <a href="./16_tpus_and_systolic_arrays.html">Ch 16</a></div></div>
+  <div class="diagram-card green"><div class="card-title">Wafer yield</div><div class="card-desc">Why big dies cost so much. <a href="./appendix_a_how_chips_are_made.html">App A</a></div></div>
+  <div class="diagram-card pink"><div class="card-title">2:4 sparsity</div><div class="card-desc">What the sparse tensor core stores. <a href="./26_sparsity_hardware_view.html">Ch 26</a></div></div>
+  <div class="diagram-card yellow"><div class="card-title">Quantization</div><div class="card-desc">Bits, groups, outliers, MXFP4 vs NVFP4. <a href="./25_quantization_hardware_view.html">Ch 25</a></div></div>
+  <div class="diagram-card blue"><div class="card-title">Atlas</div><div class="card-desc">26 accelerators, sortable. <a href="./atlas.html">Atlas</a></div></div>
 </div>
 </div>
 

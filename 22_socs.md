@@ -362,7 +362,7 @@ The MI300A delivers **~383 TFLOPS** FP16 (GPU compute only) at 750 W, with the C
   </div>
   <div class="timeline-item">
     <div class="timeline-year">2025+</div>
-    <div class="timeline-desc"><strong>Co-packaged optics / CXL pooling</strong> — Memory and compute increasingly disaggregated across optical links; see <a href="./35_where_the_industry_is_headed.md">Ch 35</a> and <a href="./appendix_c_photonics.md">Appendix C</a>.</div>
+    <div class="timeline-desc"><strong>Co-packaged optics / CXL pooling</strong> — Memory and compute increasingly disaggregated across optical links; see <a href="./35_where_the_industry_is_headed.html">Ch 35</a> and <a href="./appendix_c_photonics.html">Appendix C</a>.</div>
   </div>
 </div>
 </div>

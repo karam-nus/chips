@@ -1951,7 +1951,9 @@ figure.figure figcaption { margin-top: 0.5rem; font-size: 0.8125rem; color: var(
 .fc-elabel.yes { fill: var(--green); } .fc-elabel.no { fill: var(--red); } .fc-elabel.loop { fill: var(--accent); }
 .fc-node rect, .fc-node polygon { fill: var(--bg-elevated); stroke: var(--border); stroke-width: 1.2; }
 .fc-node text { font-size: 11.5px; fill: var(--text-primary); }
-.fc-node text.sub { font-size: 9.5px; fill: var(--text-muted); }
+.fc-node text.sub { font-size: 9.5px; fill: #a3a3a3; }
+.fc-node.decision text.sub { font-weight: 400; fill: #c4ad9b; }
+.fc-node.leaf text.sub { fill: #b5b5b5; }
 .fc-node.decision polygon { fill: #1b1611; stroke: var(--accent-dim); }
 .fc-node.decision text { fill: var(--copper-hi); font-weight: 600; }
 .fc-node.start rect { fill: var(--accent-subtle); stroke: var(--accent); }

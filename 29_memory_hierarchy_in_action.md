@@ -146,11 +146,11 @@ Because the cache so often dominates, there is a whole toolbox aimed squarely at
   </div>
   <div class="diagram-card green">
     <div class="card-title">Shrink bytes → KV quantization</div>
-    <div class="card-desc">Store K/V at INT8 or FP8 instead of FP16 → <strong>2× cut</strong>; some systems push to INT4 for <strong>4×</strong>. Targets long context specifically. See <a href="./25_quantization_hardware_view.md">Ch 25</a>.</div>
+    <div class="card-desc">Store K/V at INT8 or FP8 instead of FP16 → <strong>2× cut</strong>; some systems push to INT4 for <strong>4×</strong>. Targets long context specifically. See <a href="./25_quantization_hardware_view.html">Ch 25</a>.</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Stop wasting it → PagedAttention</div>
-    <div class="card-desc">Allocate the cache in fixed <strong>blocks (pages)</strong> like OS virtual memory (<a href="./10_memory_management.md">Ch 10</a>) instead of one contiguous slab per request. Kills fragmentation; lifts usable batch 2–4×.</div>
+    <div class="card-desc">Allocate the cache in fixed <strong>blocks (pages)</strong> like OS virtual memory (<a href="./10_memory_management.html">Ch 10</a>) instead of one contiguous slab per request. Kills fragmentation; lifts usable batch 2–4×.</div>
   </div>
   <div class="diagram-card purple">
     <div class="card-title">Don't recompute → prefix caching</div>

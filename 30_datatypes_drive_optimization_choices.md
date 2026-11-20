@@ -27,7 +27,7 @@ Strip away the jargon and a chip offers a model exactly three finite things, plu
   </div>
   <div class="diagram-card green">
     <div class="card-title">Memory bandwidth (TB/s)</div>
-    <div class="card-desc">How fast can bytes stream from HBM? Sets decode token rate. The "too slow at batch=1" problem (<a href="./11_memory_wall_and_bandwidth.md">Ch 11</a>).</div>
+    <div class="card-desc">How fast can bytes stream from HBM? Sets decode token rate. The "too slow at batch=1" problem (<a href="./11_memory_wall_and_bandwidth.html">Ch 11</a>).</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Compute throughput (FLOP/s)</div>
