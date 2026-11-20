@@ -67,7 +67,7 @@ Virtual Address (48-bit):
      L4 table    L3 table    L2 table    L1 table    offset in page
 ```
 
-This is a **4-level page table** (x86-64 uses exactly this). The page walk traverses 4 levels of tables stored in physical memory, each at a different address — potentially 4 DRAM accesses, each ~70 ns, totaling ~280 ns just to translate one address. This would be catastrophic without caching.
+This is a **4-level page table** (x86-64 uses exactly this). The page walk traverses 4 levels of tables stored in physical memory, each at a different address — potentially 4 DRAM accesses, each ~70 ns, totaling ~280 ns just to translate one address. This would be catastrophic without caching. Newer x86 CPUs add a fifth level (57-bit addresses) for machines with more than 256 TB of address space; in practice, page-walk caches and the data caches absorb most walk accesses.
 
 ### The MMU and TLB
 
@@ -85,9 +85,9 @@ A modern CPU's L2 STLB with 4096 entries covers only **16 MB** of 4 KB pages. A 
 
 ### Huge Pages to the Rescue
 
-**Huge pages** (2 MB on x86; 1 GB with 1GB pages) map much larger regions with a single TLB entry. Instead of 140 GB / 4 KB = **36 million TLB entries**, 140 GB / 2 MB = **70,000 entries** — fitting comfortably in the L2 STLB.
+**Huge pages** (2 MB on x86; 1 GB with 1GB pages) map much larger regions with a single TLB entry. Instead of 140 GB / 4 KB = **36 million TLB entries**, 140 GB / 2 MB = **70,000 entries**. That still exceeds any TLB, but each miss now covers 2 MB of streaming instead of 4 KB, so misses fall 512×. With 1 GB pages the whole model needs only **140 entries**, which does fit.
 
-PyTorch uses `mmap` with `MAP_HUGETLB` for large weight tensors when huge pages are available. Linux **Transparent Huge Pages (THP)** attempts to do this automatically. For large model inference servers, **explicitly enabling 1GB huge pages** for VRAM-sized allocations can reduce TLB pressure and improve throughput by 5–15%.
+PyTorch's CPU allocator can ask Linux for **transparent huge pages** on large allocations (set `THP_MEM_ALLOC_ENABLE=1`), and the kernel's THP may promote large anonymous mappings on its own. For large model inference servers, **explicitly enabling huge pages** (THP in `madvise` or `always` mode, or reserved `hugetlbfs` pages) can reduce TLB-miss overhead noticeably. GPUs face the same issue with their own page tables, which is why their drivers map device memory with 64 KB and 2 MB pages.
 
 ```bash
 # Enable 1GB huge pages at boot (Linux)
@@ -106,7 +106,7 @@ grep HugePages /proc/meminfo
 
 The CPU does not load a single byte from DRAM on a cache miss — it loads a **cache line**: a contiguous block of **64 bytes** (8 × `float64`, 16 × `float32`, 32 × `fp16/bf16`, 64 × `int8`). This exploits **spatial locality**: if you access address $A$, you'll likely soon access $A+4$, $A+8$, etc. Loading a full line amortizes the DRAM access cost over 64 bytes.
 
-Consequence for ML: accessing a tensor row-by-row (column-major for a row-major layout) loads 64 bytes, uses 4–8 of them, then discards the rest — catastrophically wasteful. Accessing in **the tensor's storage order** (row-major for the default C-contiguous PyTorch layout) uses all 64 bytes before eviction.
+Consequence for ML: walking a row-major tensor column by column loads 64 bytes, uses 4–8 of them, then discards the rest — catastrophically wasteful. Accessing in **the tensor's storage order** (row-major for the default C-contiguous PyTorch layout) uses all 64 bytes before eviction.
 
 ### Associativity
 
@@ -247,7 +247,7 @@ def matmul_blocked(A, B, block=64):
     return C
 ```
 
-This is conceptually what **cuBLAS, OneDNN, and Flash Attention** do — tile computations to maximize cache reuse and minimize DRAM traffic. On GPU, the "cache" is **shared memory** (32–64 KB per SM), and tiling is done explicitly in the CUDA kernel.
+This is conceptually what **cuBLAS, OneDNN, and Flash Attention** do — tile computations to maximize cache reuse and minimize DRAM traffic. On GPU, the "cache" is **shared memory** (up to 228 KB per SM on H100 and B200), and tiling is done explicitly in the CUDA kernel.
 
 ---
 
@@ -300,6 +300,8 @@ Without coherence, parallel programs are **undefined**. Hardware must enforce: *
 
 **Directory coherence:** A centralized (or distributed) **directory** tracks which caches hold each physical line. On a write, the directory sends invalidates only to the caches that have the line — much more scalable. Used in large multi-socket servers (EPYC, Xeon) with hundreds of cores.
 
+**Coherence across the CPU–GPU boundary** is the newest frontier. Over PCIe, a GPU and its host CPU are *not* hardware-coherent: software must copy or explicitly synchronise. NVIDIA's Grace Hopper and Grace Blackwell superchips join the CPU and GPU with **NVLink-C2C** (900 GB/s), which is cache-coherent: the GPU can read and cache the CPU's LPDDR5X directly and vice versa, so a model that spills past HBM can use CPU memory at a fraction of the PCIe penalty. AMD's MI300A goes further by putting CPU and GPU chiplets on one HBM pool, and **CXL.cache** (Chapter 12) standardises coherent device caching over a PCIe physical layer.
+
 ### False Sharing
 
 A pernicious coherence problem: two threads on different cores each modify *different* fields that happen to occupy the **same 64-byte cache line**. Every write from one core triggers an invalidate to the other, forcing a cache miss on the next access — despite no logical data sharing.
@@ -324,7 +326,7 @@ In PyTorch: gradient accumulation buffers, counters, and locks can suffer from f
 **Coherence** says "every core eventually sees a write to address $X$." **Consistency** says "in what order do writes to *different* addresses become visible?"
 
 - **Sequential Consistency (SC):** The ideal model. All operations appear to happen in some global total order. Easy to reason about; expensive to implement.
-- **Total Store Order (TSO):** x86's model. Stores are buffered (store buffer) before becoming globally visible; loads from the same core bypass the store buffer. Relaxes SC while remaining easy to reason about.
+- **Total Store Order (TSO):** x86's model. Each core's stores wait in a store buffer before becoming globally visible, so a core's later loads may complete before its own earlier stores are seen by others (store→load reordering); everything else stays in order. Relaxes SC while remaining easy to reason about.
 - **Weak/Release Consistency:** ARM, POWER, RISC-V. Stores and loads can be reordered aggressively by hardware for performance; memory barriers (`DMB`/`DSB` on ARM, `FENCE` on RISC-V) enforce ordering at specific points.
 
 For ML: PyTorch's `torch.distributed` operations, CUDA's `__threadfence()` and `__threadfence_system()`, and Python's `threading.Lock()` all insert the appropriate barriers. You generally don't need to manage this manually — but understanding it explains why GPU kernels need `__syncthreads()` after shared memory writes, and why naïve `atomicAdd` accesses are slower on relaxed-consistency architectures.
@@ -339,8 +341,8 @@ A server with two CPU sockets (e.g., dual-socket AMD EPYC with 96 cores per sock
 
 | NUMA scenario | Latency | Bandwidth |
 |---|:---:|:---:|
-| Local DRAM access (same socket) | ~60–80 ns | ~280 GB/s (8-channel DDR5) |
-| Remote DRAM access (other socket) | ~120–180 ns | ~140 GB/s (limited by inter-socket link) |
+| Local DRAM access (same socket) | ~90–120 ns | ~460–600 GB/s (12-channel DDR5) |
+| Remote DRAM access (other socket) | ~150–200 ns | limited by the inter-socket links (xGMI / UPI) |
 | PCIe device (GPU) DMA to host DRAM | ~200–400 ns | ~64 GB/s (PCIe 5.0 × 16) |
 
 **Remote NUMA access is 1.5–3× slower** than local. If CPU processes that handle a specific GPU are scheduled on the non-local NUMA node, every data transfer from host to GPU pays the inter-socket overhead.
@@ -378,6 +380,11 @@ loader = DataLoader(
 **Pinned memory** (page-locked, non-pageable) lets the GPU DMA engine copy directly from host RAM to GPU VRAM without a CPU intermediate copy — critical for avoiding PCIe transfer overhead when streaming training data.
 
 ---
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>On a Grace Hopper node the GPU can read the CPU's 480 GB of LPDDR5X coherently at up to 900 GB/s, about a quarter of its HBM bandwidth. Which parts of an LLM workload (cold experts, long-context KV pages, optimizer state) could live there with little slowdown, and which would collapse throughput?</p>
+</div>
 
 ## Tensor Layout, Contiguity, and Memory Management
 
@@ -421,8 +428,8 @@ Convolutional layers operate on 4D tensors with shape `[batch, channels, height,
       <li>Storage: all channels for pixel (0,0), then (0,1), …</li>
       <li>All channels for a pixel are adjacent</li>
       <li>Better for convolutions (accumulate over C at each spatial point)</li>
-      <li>Preferred by TensorFlow/ONNX, GPU conv libraries (cuDNN)</li>
-      <li>Often 10–30% faster on GPU for conv due to HBM access pattern</li>
+      <li>Native layout for TensorFlow, TensorRT and cuDNN's tensor-core convolutions</li>
+      <li>Often 10–30% faster on GPU for conv: implicit-GEMM kernels need channels contiguous, and no layout transposes are inserted</li>
     </ul>
   </div>
 </div>
@@ -463,7 +470,7 @@ conv = torch.nn.Conv2d(256, 256, 3, padding=1).to(memory_format=torch.channels_l
   </div>
   <div class="diagram-card purple">
     <div class="card-title">Pinned Memory for Transfers</div>
-    <div class="card-desc">`pin_memory=True` in DataLoader allocates page-locked memory, enabling zero-copy DMA from host to GPU. Skip it and every H2D transfer incurs an extra CPU memcpy — limiting throughput by up to 2×.</div>
+    <div class="card-desc"><code>pin_memory=True</code> allocates page-locked host memory, which the GPU's DMA engine can read directly and asynchronously (<code>non_blocking=True</code>), so copies overlap with compute. Without it, every host-to-device copy first goes through a hidden pinned staging buffer.</div>
   </div>
   <div class="diagram-card orange">
     <div class="card-title">NUMA-Aware Multi-GPU</div>
@@ -502,10 +509,48 @@ Each step is a negotiation with the memory hierarchy. Understanding these layers
 - **The three C's** — compulsory, capacity, and conflict misses — classify why a cache miss occurs; capacity misses dominate for model weights larger than L3.
 - **Tiling/blocking** is the universal technique for fitting working sets into fast SRAM (CPU L2 or GPU shared memory) to maximize reuse and minimize DRAM traffic — the core idea behind cuBLAS, Triton, and Flash Attention.
 - **MESI** cache coherence ensures multiple cores see a consistent memory view via Modified/Exclusive/Shared/Invalid states; false sharing (two threads modifying different fields in the same cache line) can silently destroy parallel performance.
-- **NUMA** topology means that remote-socket DRAM accesses are 1.5–3× slower; GPU DataLoaders and DMA transfers should be **NUMA-local** to their target GPU. `pin_memory=True` enables zero-copy DMA and is almost always a free win.
+- **NUMA** topology means that remote-socket DRAM accesses are 1.5–3× slower; GPU DataLoaders and DMA transfers should be **NUMA-local** to their target GPU. `pin_memory=True` enables direct, asynchronous DMA and is almost always a free win.
+
+## Check Yourself
+
+<details class="check">
+<summary>How much memory does a 4,096-entry TLB cover with 4 KB, 2 MB and 1 GB pages?</summary>
+<p>16 MB, 8 GB and 4 TB respectively. A 140 GB weight set therefore needs 36 million 4 KB translations, 70,000 2 MB translations, or 140 1 GB translations.</p>
+</details>
+
+<details class="check">
+<summary>Two threads increment two different counters and the program runs slower with two threads than with one. What is the likely cause and fix?</summary>
+<p>False sharing: both counters sit in one 64-byte cache line, so each write invalidates the other core's copy and the line ping-pongs between caches. Pad or align each counter to its own cache line (e.g. <code>alignas(64)</code>), or keep per-thread counters and sum at the end.</p>
+</details>
+
+<details class="check">
+<summary>Why is accessing a transposed (non-contiguous) tensor slow, and what does <code>.contiguous()</code> cost?</summary>
+<p>Each element of the innermost loop is far from the previous one in memory, so every 64-byte cache line delivers only one useful value. <code>.contiguous()</code> pays one full copy (read + write of the tensor) to restore unit stride, which is worth it when the tensor is then read many times.</p>
+</details>
+
+<details class="check">
+<summary>What is the difference between cache coherence and memory consistency?</summary>
+<p>Coherence concerns a single address: all cores agree on the order of writes to it. Consistency concerns the order in which writes to <em>different</em> addresses become visible; x86 (TSO) allows only store→load reordering, while Arm and RISC-V allow much more and need explicit fences.</p>
+</details>
+
+<details class="check">
+<summary>A DataLoader on a dual-socket server feeds GPU 0, which hangs off socket 0. Where should its workers and pinned buffers live, and why?</summary>
+<p>On socket 0's cores and memory (e.g. <code>numactl --cpunodebind=0 --membind=0</code>). Otherwise every batch crosses the inter-socket link before reaching the GPU's PCIe root port, adding latency and halving usable bandwidth.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Intel 64 and IA-32 Architectures SDM, Vol. 3 (paging, TLBs) | Intel | [intel.com/content/www/us/en/developer/article…](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html) | 4- and 5-level paging, page sizes, TLB behaviour |
+| A Primer on Memory Consistency and Cache Coherence, 2nd ed. | V. Nagarajan, D. Sorin, M. Hill, D. Wood, 2020 | [doi.org/10.2200/S00962ED2V01Y201910CAC049](https://doi.org/10.2200/S00962ED2V01Y201910CAC049) | MESI, directories, TSO and relaxed models |
+| What Every Programmer Should Know About Memory | U. Drepper, 2007 | [people.freebsd.org/~lstewart/articles/cpumemo…](https://people.freebsd.org/~lstewart/articles/cpumemory.pdf) | Cache lines, TLBs, NUMA and false sharing |
+| NVIDIA Grace Hopper Superchip Architecture | NVIDIA, 2023 | [resources.nvidia.com/en-us-grace-cpu/nvidia-g…](https://resources.nvidia.com/en-us-grace-cpu/nvidia-grace-hopper) | NVLink-C2C cache-coherent CPU–GPU memory |
+| Linux kernel documentation: Transparent Hugepage Support | Linux kernel | [docs.kernel.org/admin-guide/mm/transhuge.html](https://docs.kernel.org/admin-guide/mm/transhuge.html) | THP modes and huge-page behaviour |
+| PyTorch: Channels Last Memory Format | PyTorch tutorials | [pytorch.org/tutorials/intermediate/memory_for…](https://pytorch.org/tutorials/intermediate/memory_format_tutorial.html) | NHWC layout and its convolution speedups |
 
 ---
 
-*Next: [Chapter 11 — Memory Wall & Bandwidth](./11_memory_wall_and_bandwidth.md), where we quantify exactly how badly memory limits compute using the roofline model and arithmetic intensity — the tools that explain why almost every large-model inference workload is memory-bound.*
+**Next:** [Chapter 11 — Memory Wall & Bandwidth](./11_memory_wall_and_bandwidth.md) — We quantify exactly how badly memory limits compute using the roofline model and arithmetic intensity — the tools that explain why almost every large-model inference workload is memory-bound.
 
 [← Back to Table of Contents](./README.md)
