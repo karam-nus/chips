@@ -27,7 +27,7 @@ For ML practitioners, the implications are concrete: a training run that takes 3
       <li>Effect: bit flip in memory or flip-flop</li>
       <li>Hardware unchanged after the event</li>
       <li>Detectable/correctable with ECC</li>
-      <li>Rate: ~1–100 FIT per megabit of SRAM/DRAM</li>
+      <li>Rate: lab soft-error rates for modern DRAM are ~1 FIT per megabit or less; SRAM is higher per bit</li>
     </ul>
   </div>
   <div class="compare-side right">
@@ -48,17 +48,17 @@ For ML practitioners, the implications are concrete: a training run that takes 3
 
 **Single Event Upsets (SEUs)** — colloquially "bit flips" — occur when a charged particle deposits energy in a CMOS transistor, momentarily creating electron-hole pairs that flip the stored state of a memory cell or flip-flop.
 
-**Cosmic rays** are high-energy particles (mostly protons and alpha particles) from supernovae and other stellar events. Earth's atmosphere provides shielding (sea-level flux is ~1 neutron per cm² per hour), but data centers are not immune — at altitude (Denver, Mexico City) the flux can be 3–10× higher. When a high-energy neutron collides with a silicon nucleus, it creates a spray of secondary particles that can deposit enough charge (~100 fC / 100 femtocoulombs) in a memory cell to flip it.
+**Cosmic rays** are high-energy particles (mostly protons) from supernovae and other astrophysical sources. They collide with the upper atmosphere and shower the ground with secondary neutrons; at sea level the reference flux of neutrons energetic enough to upset a cell is about **13 per cm² per hour** (JEDEC JESD89, New York City), several times higher at airliner altitude, but data centers are not immune — at altitude (Denver, Mexico City) the flux can be 3–10× higher. When a high-energy neutron collides with a silicon nucleus, it creates a spray of secondary particles that can deposit enough charge (~100 fC / 100 femtocoulombs) in a memory cell to flip it.
 
 **Alpha particles** come from trace radioactive contamination in chip packaging materials — even "clean" packaging has parts-per-billion-level uranium and thorium isotopes that emit alpha particles with enough range (~25 μm in silicon) to reach nearby DRAM cells.
 
-**FIT (Failure in Time):** the standard unit for soft error rates. 1 FIT = 1 failure per 10⁹ device-hours = ~0.114 failures per 100,000 hours. A 32 GB DDR5 DIMM has roughly 2×10¹¹ memory cells; at a typical unprotected DRAM FIT rate of ~1 FIT/Mbit, that gives:
+**FIT (Failure in Time):** the standard unit for error rates. 1 FIT = 1 failure per 10⁹ device-hours (equivalently, a mean time to failure of ~114,000 years for one device). A 32 GB DIMM holds 2.56 × 10¹¹ bits = 256,000 Mbit; at a lab soft-error rate of ~1 FIT/Mbit:
 
-$$\text{FIT}_{\text{DIMM}} = \frac{32 \times 10^9 \times 8}{10^6} \approx 256,000 \text{ FIT}$$
+$$\text{FIT}_{\text{DIMM}} = \frac{32 \times 10^9 \times 8}{10^6} \times 1 \approx 256{,}000 \text{ FIT}$$
 
-$$\text{Error rate} = \frac{256,000}{10^9} \text{ per hour} = 2.56 \times 10^{-4} \text{ per hour} \approx 1 \text{ error per } 4 \text{ hours}$$
+$$\text{Error rate} = \frac{256{,}000}{10^9} \text{ per hour} = 2.56 \times 10^{-4} \text{ per hour} \approx 1 \text{ error per } 3{,}900 \text{ hours}$$
 
-Unprotected, a 32 GB DIMM would experience a bit error roughly every 4 hours. A server with 2 TB of RAM would experience one roughly every 3 minutes. This is why ECC memory is not optional in any serious compute environment.
+So an unprotected 32 GB DIMM would see a soft error every ~5 months, and a server with 2 TB of RAM (64 such DIMMs) one every ~2.5 days. Field studies tell a harsher story than the lab: Google's measurements across its fleet (Schroeder et al., 2009) found about a third of machines and 8 % of DIMMs seeing correctable errors each year, at effective rates of 25,000–75,000 FIT/Mbit, dominated by *hard* and intermittent faults (bad cells, failing chips) rather than particle strikes. Either way, ECC is not optional in any serious compute environment.
 
 ### Hard Errors: Wearout Mechanisms
 
@@ -84,7 +84,7 @@ All three mechanisms accelerate with temperature, which is why **keeping chips c
 
 For a $k$-bit data word, you need $r$ parity bits where $2^r \geq k + r + 1$. For $k=8$ (one byte): $r=4$ (check bits) → 12-bit codeword. For $k=64$ bits (standard DRAM word): $r=7$ check bits → 71 bits, rounded to 72 bits (adding 1 overall parity bit for double-error detection) → **64-bit data + 8 check bits = 72 bits**.
 
-This is why ECC DDR5 DIMMs have **72-bit wide buses** instead of 64-bit: the extra 8 bits carry the ECC check bits.
+This is why ECC DDR4 DIMMs have **72-bit wide buses** instead of 64-bit. DDR5 ECC RDIMMs split each module into two 40-bit sub-channels (32 data + 8 check bits each), 80 bits in total, which also lets them correct more than one bad bit per chip.
 
 **How parity bits are positioned (Hamming construction):**
 
@@ -116,11 +116,11 @@ If bit at position 7 (= 0111 binary) is flipped:
 |:--------:|:-----------:|:----------:|
 | SECDED (72-bit) | Corrects 1-bit, detects 2-bit errors per 64-bit word | DDR4/5 ECC DIMMs, CPU servers |
 | Chipkill / x4 SDDC | Full DRAM chip failure correction; corrects all bits from one ×4 DRAM | High-end servers (IBM, HPE) |
-| On-die ECC (ODECC) | ECC implemented within the DRAM die itself; transparent to the memory controller | LPDDR5, some DDR5 |
-| HBM ECC | Sideband ECC lanes in HBM stacks; SECDED across 128-bit chunks + row/bank-level | HBM2e, HBM3 in A100/H100 |
+| On-die ECC | ECC inside the DRAM die itself, invisible to the memory controller; mops up weak cells before data leaves the chip | All DDR5 (mandatory), LPDDR5, HBM3 |
+| HBM ECC | Check bits carried beside the data on each HBM channel, plus on-die ECC inside HBM3/HBM3e stacks | A100, H100, B200, MI300X and later |
 | SRAM ECC | Dedicated ECC for on-chip caches and register files | L2/L3 caches, GPU shared memory |
 
-**HBM ECC** is particularly important for GPUs. HBM3 on the H100 provides full ECC coverage of the HBM stacks with less than 1% storage overhead — using 144-bit codewords (128 data + 16 check bits) per access, providing SECDED protection. The ECC engine runs transparently; correctable errors (CECC) are logged and corrected without interrupting the computation.
+**HBM ECC** is particularly important for GPUs. NVIDIA datacenter GPUs since Volta keep ECC on by default for HBM, L2, L1/shared memory and the register file, with no capacity cost for HBM (the check bits travel in dedicated sideband lanes), and newer generations combine it with on-die ECC in the HBM stack and row remapping for cells that keep failing.
 
 ---
 
@@ -165,11 +165,11 @@ A GPU with rapidly rising corrected ECC errors is typically an early warning sig
 
 **Silent Data Corruption (SDC)** — also called **silent errors** — is the most dangerous failure mode: the hardware produces wrong answers without any error signal. No ECC alarm, no crash, no NaN — just numerically wrong output.
 
-SDC has become a recognized operational problem at hyperscale. Google, Meta, and Apple have all published research on finding "mercurial" compute cores: CPUs or GPUs that silently compute wrong results on a tiny fraction of operations. The rates are tiny — perhaps 1 error in $10^{14}$ operations — but at scale:
+SDC has become a recognized operational problem at hyperscale. Google and Meta have both published research on finding "mercurial" compute cores: CPUs or GPUs that silently compute wrong results on a tiny fraction of operations. The rates are tiny — perhaps 1 error in $10^{14}$ operations on an affected unit — but at scale:
 
 $$10^{14} \text{ ops} \div (10^{15} \text{ FLOP/s}) = 0.1 \text{ seconds of GPU time}$$
 
-A cluster running $10^{18}$ FLOPs per day of training (a realistic large run) could see thousands of silent corruption events per day.
+A 10,000-GPU cluster performs on the order of $10^{23}$ FLOPs per day, so even a handful of mercurial units among them can inject corrupted values many times a day, and nothing in the hardware will say so.
 
 **Mechanisms for SDC:**
 
@@ -181,9 +181,14 @@ A cluster running $10^{18}$ FLOPs per day of training (a realistic large run) co
 
 4. **Aging effects** (NBTI, HCI) that push timing margins to failure without triggering hard errors.
 
-**Hyperscaler response:** Google's 2021 paper described a systematic screening process: run compute-bound workloads that stress specific instruction patterns, compare outputs across multiple units, flag units that disagree. Meta (2022) described finding ~1 in 2,000 servers with mercurial DRAM that silently corrupts specific address patterns. The practical recommendation: **burn-in and validation testing** before deploying new hardware into training clusters, and **gradient/loss spike detection** during runs.
+**Hyperscaler response:** Google's 2021 paper ("Cores that don't count") described a systematic screening process: run compute-bound workloads that stress specific instruction patterns, compare outputs across multiple units, flag units that disagree. Meta (Dixit et al., 2021) described finding ~1 in 2,000 servers with mercurial DRAM that silently corrupts specific address patterns. The practical recommendation: **burn-in and validation testing** before deploying new hardware into training clusters, and **gradient/loss spike detection** during runs.
 
 ---
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>ECC protects bits at rest and on the wire, but a mercurial multiplier corrupts results <em>while computing</em>, where no code covers them. If you had to protect a matrix multiply against that, would you recompute, checksum (A·B·1 = A·(B·1) is cheap to verify), or vote across replicas, and what does each cost at 10,000 GPUs?</p>
+</div>
 
 ## Redundancy Techniques
 
@@ -201,7 +206,7 @@ DRAM arrays are manufactured with extra rows and columns beyond the nominal capa
 
 ### Redundant Compute Cores for Yield (GPU)
 
-GPU dies ship with more shader multiprocessors (SMs) than the product specification requires. A GTX 4090 "uses" 128 of NVIDIA's GA102 SMs, but the die has 144. If up to 16 SMs are defective, the die still passes as a fully functional product — defective SMs are disabled via fusing. Dies with 128–143 functional SMs sell as 4090; dies with 100–127 functional SMs sell as lower-tier 4080/4070 variants. This **binning** dramatically improves yield and economics. See [Appendix A — How Chips Are Made](./appendix_a_how_chips_are_made.md) for the full yield/binning discussion.
+GPU dies ship with more shader multiprocessors (SMs) than the product specification requires. An RTX 4090 enables 128 of the 144 SMs on NVIDIA's AD102 die, and an H100 SXM enables 132 of GH100's 144. If up to 16 SMs are defective, the die still passes as a fully functional product — defective SMs are disabled via fusing. Dies with 128–143 functional SMs sell as 4090; dies with 100–127 functional SMs sell as lower-tier 4080/4070 variants. This **binning** dramatically improves yield and economics. See [Appendix A — How Chips Are Made](./appendix_a_how_chips_are_made.md) for the full yield/binning discussion.
 
 ---
 
@@ -213,7 +218,7 @@ $$\text{Lifetime} \propto e^{E_a / (k_B T)}$$
 
 where $E_a$ is the activation energy (typically 0.5–1.0 eV for electromigration), $k_B$ is Boltzmann's constant, and $T$ is absolute temperature. Every 10°C rise roughly halves the mean time to failure for most wearout mechanisms.
 
-Modern GPUs implement **thermal throttling** (also called **dynamic thermal management, DTM**): when the junction temperature exceeds a threshold (typically 83°C for NVIDIA GPUs), the driver reduces the GPU clock and/or power limit to bring temperature down. This is automatic and transparent — but it silently reduces compute throughput.
+Modern GPUs implement **thermal throttling** (also called **dynamic thermal management, DTM**): when the junction temperature exceeds a threshold (typically in the 80s °C for NVIDIA GPUs; datacenter parts report a slowdown temperature through NVML), the driver reduces the GPU clock and/or power limit to bring temperature down. This is automatic and transparent — but it silently reduces compute throughput.
 
 ```text
 H100 SXM5 temperature-performance profile (approximate):
@@ -234,18 +239,20 @@ No hardware mechanism alone can protect a 30-day training run against all failur
 
 **What to checkpoint:**
 - Model weights (`model.state_dict()`)
-- Optimizer state (Adam's `m` and `v` momentum tensors — typically 2× the model size in FP32)
+- Optimizer state (Adam's `m` and `v`: two FP32 values per parameter, 4× the size of BF16 weights) and the FP32 master weights
 - LR scheduler state
 - RNG states (for reproducibility of dropout)
 - Step number, epoch, dataloader position
 
-**Checkpointing cost:** for a 70B model in BF16 (140 GB) with Adam optimizer (560 GB FP32) = ~700 GB per checkpoint. At NVMe write speed of ~7 GB/s, this takes ~100 seconds. At a typical checkpoint frequency of every 100–500 training steps (~5–25 minutes), the overhead is 0.5–3%. Distributed checkpointing (each GPU writes its own shard in parallel) reduces this proportionally with GPU count.
+**Checkpointing cost:** for a 70B model, the FP32 master weights (280 GB) plus Adam's m and v (560 GB) come to ~840 GB per checkpoint. Written by one machine at ~7 GB/s that would take two minutes; in practice every data-parallel rank writes its own shard in parallel, and asynchronous checkpointing copies state to host memory in seconds and drains it to storage in the background. At a typical checkpoint frequency of every 100–500 training steps (~5–25 minutes), the overhead is 0.5–3%. Distributed checkpointing (each GPU writes its own shard in parallel) reduces this proportionally with GPU count.
 
 **Mean time between failures (MTBF) considerations:** at 1,000 GPUs, if each GPU has an MTBF of 20,000 hours (~2.3 years), the cluster's MTBF is:
 
 $$\text{MTBF}_{\text{cluster}} = \frac{20,000}{1,000} = 20 \text{ hours}$$
 
 A 30-day run should expect approximately $30 \times 24 / 20 = 36$ individual GPU failures. Without checkpointing, each failure restarts from scratch. With hourly checkpoints, each failure costs at most 1 hour of compute. **This is not optional at scale.**
+
+Real numbers are worse than this textbook estimate. Meta's Llama 3 405B pre-training run on 16,384 H100s saw **466 job interruptions in 54 days**, 419 of them unexpected (about one every three hours). Roughly 78 % were hardware: faulty GPUs (30 % of unexpected interruptions) and HBM3 failures (17 %) led the list, followed by software bugs, network links and host machines. Despite that, automated detection and restart kept effective training time above 90 %.
 
 ---
 
@@ -447,21 +454,22 @@ r3 = estimate_bit_flips(num_gpus=1024, hbm_per_gpu_gb=80,
 print_fit_estimate(r3, "1024× H100, 30-day run, NO ECC")
 ```
 
-**Sample output:**
+**Output** (Python 3.12, abridged):
+
 ```text
   8× H100 (80 GB), 1 week, ECC enabled
-  Total HBM:    0.6 TB    Expected CECC: 0.3    P(zero UECC): 100.00%
+  Total HBM:    0.6 TB    Expected CECC: 0.9    P(zero UECC): 100.00%
 
   1024× H100, 30-day run, ECC enabled
-  Total HBM:   81.9 TB    Expected CECC: 4,474  P(zero UECC): 99.55%
-  Expected UECC: 0.004  ← rare but real
+  Total HBM:   81.9 TB    Expected CECC: 471.9  P(zero UECC): 99.95%
+  Expected UECC: 0.0005  ← rare but real
 
   1024× H100, 30-day run, NO ECC
-  Expected UECC: 4,474  ← catastrophic
+  Expected UECC: 471.9  ← catastrophic
   P(zero UECC): ~0%
 ```
 
-Without ECC: ~4,474 silent corruptions over 30 days across 1,024 GPUs. With ECC: ~4,474 corrected transparently, ~0.004 uncorrectable (i.e., one UECC event every ~250 such runs). **ECC is non-negotiable for serious training.**
+At the lab rate of 1 FIT/Mbit: without ECC, ~470 silent corruptions over 30 days across 1,024 GPUs; with ECC, ~470 corrected transparently and ~0.0005 uncorrectable (one UECC event per ~2,000 such runs). Field error rates are higher and dominated by failing parts, which ECC also catches and reports. **ECC is non-negotiable for serious training.**
 
 ---
 
@@ -486,7 +494,7 @@ Without ECC: ~4,474 silent corruptions over 30 days across 1,024 GPUs. With ECC:
 
 **Quantization and bit-flip sensitivity:** Lower-precision formats have smaller dynamic ranges. An INT4 weight has only 16 levels; a single bit flip in the most significant bit changes the value by 8 quantization steps — potentially a large perturbation. FP8 exponent bits are similarly sensitive (flipping the MSB of the exponent changes value by 128×). This means quantized models may be *more sensitive* to residual soft errors that ECC misses (e.g., in L1/shared memory without ECC on older GPUs). When deploying quantized models in high-reliability settings, prefer hardware with full ECC coverage including L1/SRAM (H100 has this; some older GPUs do not).
 
-**Redundant layers / MoE robustness:** Mixture-of-Experts models have inherent redundancy — if one expert is corrupted, other experts may compensate. Dense models have no such redundancy; a corrupted attention projection layer silently degrades every forward pass.
+**Detection beats hoping for robustness:** no model architecture reliably tolerates corrupted weights or gradients. Practical defenses are monitoring (loss and gradient-norm spikes, NaN/Inf checks), checksums on checkpoints, and periodically re-running a known batch on each GPU to catch mercurial hardware.
 
 **Thermal management:** GPU frequency throttling under poor cooling is a silent performance bug. Monitoring junction temperature and ensuring adequate cooling (liquid cooling for 700 W+ GPUs) prevents both reduced throughput and accelerated wearout.
 
@@ -494,16 +502,54 @@ Without ECC: ~4,474 silent corruptions over 30 days across 1,024 GPUs. With ECC:
 
 ## Key Takeaways
 
-- **Soft errors (SEUs)** from cosmic rays and alpha particles flip bits at a rate of ~1/Mbit/hour in unprotected DRAM. At 80 TB of HBM across a 1,024-GPU cluster, this is ~4,000 expected errors per 30-day run — all silently corrected by ECC.
-- **SECDED Hamming codes** add ~12.5% overhead (8 check bits per 64 data bits) to correct any single-bit error and detect any double-bit error. This is the scheme used in HBM3 ECC on H100/A100.
+- **Soft errors (SEUs)** from cosmic-ray neutrons and alpha particles flip bits at roughly 1 FIT/Mbit (1 per 10⁹ hours per megabit) in modern DRAM; field error rates including failing parts are far higher. At 82 TB of HBM across 1,024 GPUs, the lab rate alone gives ~470 bit flips per 30-day run, all corrected by ECC.
+- **SECDED Hamming codes** add 12.5 % overhead (8 check bits per 64 data bits) to correct any single-bit error and detect any double-bit error; GPUs and DDR5 layer stronger codes and on-die ECC on top.
 - **Hard errors** (electromigration, NBTI) cause permanent wearout accelerated by high temperature. Thermal throttling protects the chip at the cost of throughput; proper cooling prevents both.
-- **Silent data corruption** from mercurial compute units is a real hyperscaler problem: ~1 in 2,000 servers may produce subtly wrong results, detectable only by cross-checking. Screen hardware before critical training runs.
-- **Checkpointing** is the primary software fault tolerance mechanism. A 1,000-GPU cluster has an expected hardware failure every ~20 hours; checkpoint frequently enough that the expected wasted compute per failure is tolerable.
+- **Silent data corruption** from mercurial compute units is a real hyperscaler problem: Google and Meta report on the order of one affected machine per thousand. Screen hardware before and during critical training runs.
+- **Checkpointing** is the primary software fault tolerance mechanism. Llama 3 405B saw an unexpected interruption every ~3 hours on 16K GPUs; checkpoint often, asynchronously, and automate restart.
 - **Quantized/low-precision models** (INT4, FP8) may be more sensitive to the residual soft errors that slip through ECC coverage gaps (uncovered SRAM, single-lane bus errors). Prefer full-coverage ECC (H100 covers L1/SRAM) in production.
 - **Loss spike monitoring** is the practical defense against silent corruptions that ECC does not catch — a corrupted gradient tensor produces a visible anomaly in the training curve.
 
+## Check Yourself
+
+<details class="check">
+<summary>Convert 256,000 FIT into errors per day.</summary>
+<p>256,000 / 10⁹ per hour = 2.56 × 10⁻⁴ per hour, × 24 ≈ 0.006 per day: about one error every 160 days.</p>
+</details>
+
+<details class="check">
+<summary>Why does SECDED need 8 check bits for 64 data bits?</summary>
+<p>A Hamming code needs r bits with 2<sup>r</sup> ≥ k + r + 1 to point at any single erroneous position among k + r bits; for k = 64 that gives r = 7. One more overall-parity bit distinguishes single errors (correctable) from double errors (detectable only): 7 + 1 = 8.</p>
+</details>
+
+<details class="check">
+<summary>A GPU's corrected-ECC counter climbs steadily over a week. What does that suggest and what should you do?</summary>
+<p>Most likely a degrading cell or chip (a hard or intermittent fault), not cosmic rays, which are rare and random. Drain the GPU, let the driver remap the rows (or run diagnostics), and replace it if the count keeps rising: rising correctable errors often precede uncorrectable ones.</p>
+</details>
+
+<details class="check">
+<summary>Why can't ECC catch silent data corruption from a faulty multiplier?</summary>
+<p>ECC protects stored and transmitted bits; it checks that what is read equals what was written. A mercurial ALU writes a wrong result with correct check bits, so every later read looks perfectly valid.</p>
+</details>
+
+<details class="check">
+<summary>With a cluster MTBF of 3 hours and a 1-minute checkpoint cost, roughly how often should you checkpoint?</summary>
+<p>Young's approximation gives the optimal interval √(2 × cost × MTBF) = √(2 × 1 min × 180 min) ≈ 19 min. Checkpointing every 15–20 minutes balances checkpoint overhead against expected lost work.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| DRAM Errors in the Wild: A Large-Scale Field Study | B. Schroeder, E. Pinheiro, W.-D. Weber, SIGMETRICS 2009 | [doi.org/10.1145/1555349.1555372](https://doi.org/10.1145/1555349.1555372) | Field DRAM error rates (25,000–75,000 FIT/Mbit), hard faults dominate |
+| Cores that don't count | P. Hochschild et al. (Google), HotOS 2021 | [doi.org/10.1145/3458336.3465297](https://doi.org/10.1145/3458336.3465297) | Mercurial cores and silent data corruption at scale |
+| Silent Data Corruptions at Scale | H. D. Dixit et al. (Meta), 2021 | [arxiv.org/abs/2102.11245](https://arxiv.org/abs/2102.11245) | Detecting SDC in a large fleet |
+| The Llama 3 Herd of Models (Sec. 3.3.4, reliability) | Llama Team, Meta, 2024 | [arxiv.org/abs/2407.21783](https://arxiv.org/abs/2407.21783) | 466 interruptions in 54 days on 16K H100s, failure breakdown |
+| JESD89 Measurement and Reporting of Alpha Particle and Terrestrial Cosmic Ray-Induced Soft Errors | JEDEC | [jedec.org/standards-documents/docs/jesd-89a](https://www.jedec.org/standards-documents/docs/jesd-89a) | Reference neutron flux and SER test methods |
+| A First Order Approximation to the Optimum Checkpoint Interval | J. W. Young, CACM 1974 | [doi.org/10.1145/361147.361115](https://doi.org/10.1145/361147.361115) | Optimal checkpoint interval √(2·C·MTBF) |
+
 ---
 
-*Next: [Chapter 14 — CPUs](./14_cpus.md), where we examine out-of-order superscalar cores, deep pipelines, and cache hierarchies — and understand when and why CPUs remain relevant for ML workloads.*
+**Next:** [Chapter 14 — CPUs](./14_cpus.md) — We examine out-of-order superscalar cores, deep pipelines, and cache hierarchies — and understand when and why CPUs remain relevant for ML workloads.
 
 [← Back to Table of Contents](./README.md)
