@@ -44,7 +44,7 @@ The contrast with [Chapter 14's CPU](./14_cpus.md) is the starting point:
 </div>
 </div>
 
-The GPU's answer to latency is not to eliminate it — it is to **have so many threads in flight that there is always something ready to execute**. A memory access that stalls a warp for 400 cycles is hidden if 400+ cycles worth of other warps are available to run in the meantime.
+The GPU's answer to latency is not to eliminate it — it is to **have so many threads in flight that there is always something ready to execute**. A memory access that stalls a warp for 500+ cycles is hidden if 400+ cycles worth of other warps are available to run in the meantime.
 
 This design makes GPUs perfect for workloads that are:
 1. **Data-parallel:** the same operation applied to millions of independent data elements.
@@ -94,17 +94,17 @@ The SM is the fundamental compute unit of a GPU — analogous to a CPU core, but
   <div class="diagram-card blue">
     <div class="card-icon">🧮</div>
     <div class="card-title">4 Tensor Core Units</div>
-    <div class="card-desc">4th-gen Tensor Cores, each performing a 16×16×16 FP16/BF16 matmul fragment per cycle. ~16× the raw throughput of CUDA cores.</div>
+    <div class="card-desc">4th-gen Tensor Cores, each performing 512 dense FP16/BF16 FMAs per clock (1,024 for FP8). Together ~15× the throughput of the SM's FP32 CUDA cores.</div>
   </div>
   <div class="diagram-card purple">
     <div class="card-icon">📦</div>
     <div class="card-title">256 KB Register File</div>
-    <div class="card-desc">Shared among all 2048 threads resident on the SM. Each thread gets 128 32-bit registers max (at 100% occupancy: 32 registers/thread × 64 warps × 32 threads = 65536 registers = 256 KB).</div>
+    <div class="card-desc">65,536 32-bit registers shared by up to 2,048 resident threads. A thread can use up to 255; at full occupancy each gets 32 (32 × 2,048 = 65,536).</div>
   </div>
   <div class="diagram-card orange">
     <div class="card-icon">💾</div>
     <div class="card-title">228 KB L1 / Shared Mem</div>
-    <div class="card-desc">On-chip SRAM, software-controlled "shared memory" up to 228 KB, or used as L1 data cache. Extremely fast: ~19 TB/s within an SM.</div>
+    <div class="card-desc">On-chip SRAM: software-managed "shared memory" (up to 228 KB) carved from the same array as the L1 data cache. Delivers ~128 bytes per clock per SM (~31 TB/s across the chip) at ~30-cycle latency.</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-icon">🔀</div>
@@ -114,12 +114,50 @@ The SM is the fundamental compute unit of a GPU — analogous to a CPU core, but
 </div>
 </div>
 
-**H100 SXM5 full die:** 132 SMs. At 1830 MHz:
-- CUDA core FP32 throughput: 132 × 128 cores × 2 FLOPS × 1.83 GHz = **~62 TFLOPS FP32**
-- Tensor Core FP16/BF16 throughput: **~989 TFLOPS** (sparse), ~494 TFLOPS (dense)
-- Tensor Core FP8 throughput: **~1979 TFLOPS** (sparse), ~989 TFLOPS (dense)
+**H100 SXM5** (132 of the full GH100 die's 144 SMs enabled), at the 1.83 GHz clock NVIDIA uses for its tensor figures:
+- CUDA core FP32 throughput: 132 × 128 cores × 2 FLOPS × 1.83 GHz = **~62 TFLOPS FP32** (67 at the 1.98 GHz maximum boost)
+- Tensor Core FP16/BF16 throughput: **~989 TFLOPS dense** (~1,979 with 2:4 sparsity)
+- Tensor Core FP8 throughput: **~1,979 TFLOPS dense** (~3,958 with 2:4 sparsity)
 
 The >16× gap between CUDA core and Tensor Core throughput is the reason that any ML kernel worth running must hit Tensor Cores.
+
+---
+
+<div class="die-wrap">
+<div class="die-frame">
+<div class="hbm-col"><div class="hbm">HBM3</div><div class="hbm">HBM3</div><div class="hbm">HBM3</div></div>
+<div class="die" style="grid-template-columns:repeat(4,1fr);grid-template-areas:'g1 g2 g3 g4' 'la la lb lb' 'g5 g6 g7 g8' 'nv nv pc pc';max-width:560px">
+<div class="blk compute" style="grid-area:g1">GPC<small>18 SMs</small></div><div class="blk compute" style="grid-area:g2">GPC<small>18 SMs</small></div><div class="blk compute" style="grid-area:g3">GPC<small>18 SMs</small></div><div class="blk compute" style="grid-area:g4">GPC<small>18 SMs</small></div>
+<div class="blk cache" style="grid-area:la">L2 partition<small>30 MB</small></div><div class="blk cache" style="grid-area:lb">L2 partition<small>30 MB</small></div>
+<div class="blk compute" style="grid-area:g5">GPC<small>18 SMs</small></div><div class="blk compute" style="grid-area:g6">GPC<small>18 SMs</small></div><div class="blk compute" style="grid-area:g7">GPC<small>18 SMs</small></div><div class="blk compute" style="grid-area:g8">GPC<small>18 SMs</small></div>
+<div class="blk io" style="grid-area:nv">NVLink 4 · 18 links</div><div class="blk io" style="grid-area:pc">PCIe 5.0 · media · copy engines</div>
+</div>
+<div class="hbm-col"><div class="hbm">HBM3</div><div class="hbm">HBM3</div><div class="hbm">spare site</div></div>
+</div>
+<div class="die-legend"><span style="--k:rgba(232,145,106,.7)">SMs (4 Tensor Cores each)</span><span style="--k:rgba(59,130,246,.7)">L2</span><span style="--k:rgba(148,163,184,.7)">I/O</span><span style="--k:#5d4790">HBM stacks</span></div>
+<div class="die-caption">GH100, stylised (not to scale): 8 GPCs × 9 TPCs × 2 SMs = 144 SMs and 60 MB of L2 on the full ~814 mm² die. The H100 SXM product enables 132 SMs, 50 MB of L2 and five of the six HBM sites; disabling spares is how a die this large still yields (<a href="./appendix_a_how_chips_are_made.html">Appendix A</a>).</div>
+</div>
+
+<div class="datasheet">
+<div class="ds-head"><span class="ds-part">GH100</span><span class="ds-name">NVIDIA H100 SXM5 Tensor Core GPU</span><span class="ds-stamp ok">shipping since 2022</span><span class="ds-sub">TSMC 4N · 80 B transistors · 814 mm² · 700 W</span></div>
+<div class="ds-grid">
+<table><thead><tr><th colspan="2">Compute (dense)</th></tr></thead><tbody>
+<tr><td>SMs / Tensor Cores</td><td class="v">132 / 528</td></tr>
+<tr><td>FP64 (tensor)</td><td class="v">67 TFLOPS</td></tr>
+<tr><td>TF32</td><td class="v">494 TFLOPS</td></tr>
+<tr><td>BF16 / FP16</td><td class="v">989 TFLOPS</td></tr>
+<tr><td>FP8 / INT8</td><td class="v">1,979 TFLOPS / TOPS</td></tr>
+</tbody></table>
+<table><thead><tr><th colspan="2">Memory and I/O</th></tr></thead><tbody>
+<tr><td>HBM3</td><td class="v">80 GB · 3.35 TB/s</td></tr>
+<tr><td>L2 cache</td><td class="v">50 MB</td></tr>
+<tr><td>Shared memory / SM</td><td class="v">up to 228 KB</td></tr>
+<tr><td>NVLink 4</td><td class="v">900 GB/s</td></tr>
+<tr><td>Ridge point (BF16)</td><td class="v">~295 FLOP/B</td></tr>
+</tbody></table>
+</div>
+<div class="ds-foot">Sparse (2:4) rates are 2× the dense figures. Source: <a href="https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper">NVIDIA H100 architecture whitepaper</a>; compare every generation in the <a href="./atlas.html">Accelerator Atlas</a>.</div>
+</div>
 
 ---
 
@@ -154,7 +192,7 @@ Each SM holds up to **64 resident warps** (2048 threads / 32 threads per warp = 
 
 The **warp scheduler** checks which warps are eligible each cycle and issues instructions from them. This is **zero-cost context switching**: switching between warps costs nothing because each warp's register state is permanently stored in the register file — there is no save/restore.
 
-The key insight: if an SM has 64 warps resident and one warp stalls on a 300-cycle HBM access, **63 other warps can keep the execution units busy** during those 300 cycles. Latency is not eliminated; it is **pipelined away** by overlapping it with computation from other warps.
+The key insight: if an SM has 64 warps resident and one warp stalls on a ~600-cycle HBM access, **63 other warps can keep the execution units busy** during those cycles. Latency is not eliminated; it is **pipelined away** by overlapping it with computation from other warps.
 
 <div class="diagram">
 <div class="diagram-title">Warp Scheduling: Latency Hidden by Multiplexing</div>
@@ -214,32 +252,34 @@ A GPU has five distinct levels of memory, spanning orders of magnitude in size, 
 <div class="diagram">
 <div class="diagram-title">H100 GPU Memory Hierarchy (per SM → device)</div>
 <div class="layer-stack">
-  <div class="layer"><strong>Registers</strong> — 256 KB per SM (65536 × 32-bit regs), ~1 cycle, private per thread, ~19 TB/s</div>
-  <div class="layer"><strong>Shared Memory / L1 Cache</strong> — up to 228 KB per SM, ~1–3 cycles, shared within a thread block, programmable SRAM, ~19 TB/s</div>
-  <div class="layer"><strong>L2 Cache</strong> — 50 MB total (across chip), ~30–40 cycles, shared across all SMs, ~10 TB/s effective</div>
-  <div class="layer"><strong>HBM3 (Global Memory)</strong> — 80 GB, ~300–400 cycles, off-die, on-package HBM stacks, <strong>3.35 TB/s</strong></div>
-  <div class="layer"><strong>CPU DRAM (via PCIe / NVLink)</strong> — TBs, ~10,000+ cycles, PCIe 5: ~128 GB/s, NVLink 4: ~900 GB/s</div>
+  <div class="layer"><strong>Registers</strong> — 256 KB per SM (65,536 × 32-bit), operands every cycle, private per thread; the highest-bandwidth storage on the chip</div>
+  <div class="layer"><strong>Shared Memory / L1 Cache</strong> — up to 228 KB per SM, ~30 cycles, shared within a thread block, ~128 B/clock per SM (~31 TB/s chip-wide)</div>
+  <div class="layer"><strong>L2 Cache</strong> — 50 MB (two partitions), ~200–300 cycles, shared across all SMs, ~5–10 TB/s</div>
+  <div class="layer"><strong>HBM3 (Global Memory)</strong> — 80 GB, ~500–800 cycles, five on-package stacks, <strong>3.35 TB/s</strong></div>
+  <div class="layer"><strong>CPU DRAM (via PCIe / NVLink-C2C)</strong> — TBs, microseconds, PCIe 5.0 x16: ~64 GB/s per direction; Grace Hopper NVLink-C2C: 900 GB/s total</div>
 </div>
 </div>
 
 | Memory Level | H100 Size | Latency | Bandwidth | Scope |
 |--------------|-----------|---------|-----------|-------|
-| Registers | 256 KB / SM (× 132 SMs) | ~1 cycle | ~19 TB/s / SM | Per thread |
-| Shared mem / L1 | 228 KB / SM (software-managed) | ~1–3 cycles | ~19 TB/s / SM | Per block (threads within a block) |
-| L2 cache | 50 MB (whole GPU) | ~30–40 cycles | ~10 TB/s | All SMs |
-| HBM3 global mem | 80 GB | ~300–400 cycles | **3.35 TB/s** | Whole device |
-| Host DRAM (PCIe 5) | system RAM | ~50,000 cycles | ~128 GB/s | Host ↔ device |
-| Host DRAM (NVLink4) | system RAM | ~10,000 cycles | ~900 GB/s (GH200) | Host ↔ device |
+| Registers | 256 KB / SM (× 132 SMs = 33 MB) | operands each cycle | ~2.8 TB/s of operand reads per SM | Per thread |
+| Shared mem / L1 | 228 KB / SM (software-managed) | ~30 cycles | ~128 B/clock/SM (~31 TB/s total) | Per block |
+| L2 cache | 50 MB (whole GPU) | ~200–300 cycles | ~5–10 TB/s | All SMs |
+| HBM3 global mem | 80 GB | ~500–800 cycles | **3.35 TB/s** | Whole device |
+| Host DRAM (PCIe 5.0 x16) | system RAM | microseconds | ~64 GB/s per direction | Host ↔ device |
+| Host DRAM (NVLink-C2C, GH200) | up to 480 GB LPDDR5X | ~1 µs | 900 GB/s total | Host ↔ device, coherent |
+
+Latencies are approximate, from published microbenchmarks; they vary with clock, access pattern and generation.
 
 ### HBM: Why It Matters
 
 **HBM (High Bandwidth Memory)** is the reason the GPU can sustain 3.35 TB/s. Unlike DDR5/LPDDR5 DRAM (which communicates over a relatively narrow bus, 64–512 bits wide), HBM uses a **very wide bus (1024 bits per stack × multiple stacks)** and is stacked physically next to the GPU die on the same package interposer. On an H100 SXM5:
 
-- **6 HBM3 stacks**, each with a **1024-bit bus**
-- Total bus width: 6 × 1024 = **6144 bits**
-- At 6.4 Gbps per pin: 6144 × 6.4 / 8 = **~4.9 TB/s** (theoretical peak); practical ~3.35 TB/s
+- **Five active HBM3 stacks** (the package has six sites), each with a **1,024-bit bus**
+- Total bus width: 5 × 1,024 = **5,120 bits**
+- At ~5.2 Gbps per pin: 5,120 × 5.23 / 8 ≈ **3.35 TB/s**, the datasheet peak. (HBM3 is specified up to 6.4 Gbps; H100 runs it below that, and H200's six HBM3e stacks reach 4.8 TB/s.)
 
-Compare to a high-end CPU: AMD EPYC Genoa at 12 DDR5-4800 channels = ~461 GB/s — roughly **7× less bandwidth**. For memory-bound operations (see the roofline section), this gap is decisive.
+Compare to a high-end CPU: AMD EPYC Turin at 12 DDR5-6400 channels = ~614 GB/s, roughly **5× less bandwidth**. For memory-bound operations (see the roofline section), this gap is decisive.
 
 We explore HBM in detail in [Chapter 9 — Memory Types](./09_memory_types.md) and the wider bandwidth story in [Chapter 11 — Memory Wall & Bandwidth](./11_memory_wall_and_bandwidth.md).
 
@@ -304,11 +344,9 @@ $$D = A \times B + C$$
 
 where $A$, $B$, $C$, $D$ are small matrix fragments. The key is that **one Tensor Core instruction performs this entire small matmul in a few cycles** — hardware that is far more efficient than routing individual multiply-add operations through the CUDA core FP32 pipeline.
 
-On Hopper (H100), the fundamental Tensor Core instruction (wgmma — Warpgroup MMA) operates on:
-- **A:** 16 × K fragment (K = 8 for FP16, 16 for INT8, 32 for FP4)
-- **B:** K × 8 fragment
-- **D:** 16 × 8 accumulator
-- But in practice, the 4 Tensor Core units per SM are fed as a group — the effective per-SM throughput uses 4th-gen wgmma instructions over larger tiles.
+- **mma.sync** (since Volta, per warp): e.g. m16n8k16 for FP16/BF16, i.e. a 16×16 A fragment times a 16×8 B fragment into a 16×8 accumulator held in registers.
+- **wgmma** (Hopper, per *warpgroup* of four warps): a 64×N×16 tile for FP16/BF16 (K = 32 for FP8 and INT8), N up to 256, issued asynchronously and reading B (and optionally A) straight from shared memory. Keeping the Tensor Cores fed from shared memory is what lets Hopper reach its peak.
+- **tcgen05.mma** (Blackwell): issued by a single thread, accumulating into a dedicated 256 KB-per-SM **Tensor Memory**, with tiles that can span a pair of SMs. Each generation moves more of the matmul's data choreography into hardware.
 
 The net result: **Tensor Core throughput is ~16× higher than FP32 CUDA core throughput** on H100. This is the number that matters for ML. Any kernel that cannot use Tensor Cores is leaving most of the GPU's performance on the table.
 
@@ -321,8 +359,12 @@ Tensor Core capabilities have expanded with each GPU generation:
 | Volta (V100) | 2017 | — | — | ✓ | — | — | — | — | — |
 | Turing (T4, RTX 20xx) | 2018 | — | — | ✓ | — | ✓ | ✓ | — | — |
 | Ampere (A100, A30) | 2020 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| Hopper (H100) | 2022 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (E4M3 + E5M2) | — |
-| Blackwell (B200) | 2024 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (NVFP4) |
+| Hopper (H100) | 2022 | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ (E4M3 + E5M2) | — |
+| Blackwell (B200) | 2024 | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ (NVFP4, MXFP4, MXFP6) |
+| Blackwell Ultra (B300) | 2025 | reduced | ✓ | ✓ | ✓ | reduced | — | ✓ | ✓ (1.5× B200's FP4 rate) |
+| Rubin (2026) | 2026 | — | ✓ | ✓ | ✓ | — | — | ✓ | ✓ (NVFP4-centric) |
+
+Hopper dropped the INT4 Tensor Core path that Turing and Ampere had; Blackwell replaced it with FP4, and Blackwell Ultra traded away most FP64 and INT8 throughput to spend the area on more FP4. (Rubin's per-format rates beyond FP4 had not been fully published at the time of writing.)
 
 **TF32 (TensorFloat-32):** NVIDIA's hybrid format — 8 exponent bits, 10 mantissa bits, 19 bits total — that fits in a 32-bit storage location but uses only 19 significant bits for computation. Introduced in Ampere, TF32 allows `torch.matmul` on FP32 inputs to automatically use Tensor Cores with minimal accuracy loss. Enabled by default in PyTorch since 1.11.
 
@@ -353,7 +395,7 @@ scaler.step(optimizer)
 scaler.update()
 ```
 
-**FP8 on H100:** Two FP8 formats are supported — `E4M3` (range-optimized for activations: 4 exponent bits, 3 mantissa) and `E5M2` (used for gradients: 5 exponent, 2 mantissa). FP8 doubles throughput versus FP16/BF16. The `transformer_engine` library wraps this for PyTorch.
+**FP8 on H100:** Two FP8 formats are supported — `E4M3` (more precision, max 448: weights and activations in the forward pass) and `E5M2` (more range, max 57,344: gradients). FP8 doubles throughput versus FP16/BF16. The `transformer_engine` library wraps this for PyTorch.
 
 ```python
 # FP8 inference via Transformer Engine (H100+):
@@ -372,8 +414,8 @@ with te.fp8_autocast(enabled=True):
 |-------|-------------|---------------------|
 | FP64 | ~67 | — |
 | TF32 | ~494 | ~989 |
-| FP16 / BF16 | ~494 | ~989 |
-| FP8 (E4M3/E5M2) | ~989 | ~1979 |
+| FP16 / BF16 | ~989 | ~1,979 |
+| FP8 (E4M3/E5M2) | ~1,979 | ~3,958 |
 | INT8 | ~1979 | ~3958 |
 
 "Sparse" means the [2:4 structured sparsity](./26_sparsity_hardware_view.md) format: out of every 4 elements, exactly 2 are zero. H100 has a dedicated **Sparse Tensor Core** mode that skips the zero multiplications, doubling throughput for qualifying weight matrices.
@@ -458,9 +500,9 @@ print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
 Each CUDA kernel invocation carries **~5–20 µs of overhead** (CPU-side driver validation, GPU work queue submission). For a model with many small operations, kernel launch overhead can dominate. This is why:
 - **Operator fusion** (combining multiple elementwise ops into one kernel) is valuable.
-- `torch.compile()` and `torch.jit.script()` fuse operations aggressively.
+- `torch.compile()` fuses operations aggressively (TorchScript's `torch.jit.script` is in maintenance mode).
 - Large batch sizes amortize launch overhead across more work.
-- The A100/H100 introduce **CUDA Graphs**: capture a sequence of kernels as a graph once, then replay it without re-incurring launch overhead (useful for fixed-shape inference loops).
+- **CUDA Graphs** (CUDA 10, 2018 onward, any recent GPU): capture a sequence of kernels as a graph once, then replay it with a single launch (essential for fixed-shape inference loops such as LLM decode).
 
 ```python
 # CUDA Graphs: eliminate kernel launch overhead for repeated fixed-shape inference:
@@ -498,12 +540,12 @@ Operations with AI > 295 FLOP/byte are **compute-bound**; below, **memory-bound*
 
 | Operation | Typical AI | Regime |
 |-----------|-----------|--------|
-| Large GEMM (e.g., 4096×4096×4096, FP16) | ~2730 FLOP/byte | Compute-bound (Tensor Core) |
+| Large GEMM (e.g., 4096×4096×4096, FP16) | ~1,365 FLOP/byte | Compute-bound (Tensor Core) |
 | Attention (QK^T, full sequence) | ~50–500 FLOP/byte (grows with seq len) | Mixed; Flash Attention → compute-bound |
 | LayerNorm / RMSNorm | ~3–5 FLOP/byte | Memory-bound |
 | Element-wise activations (ReLU, SiLU) | ~1–2 FLOP/byte | Memory-bound |
 | LLM decode (batch=1, one token) | ~1–2 FLOP/byte | Memory-bound |
-| LLM decode (batch=64, one token) | ~64–128 FLOP/byte | Approaching compute-bound |
+| LLM decode (batch=64, one token) | ~64 FLOP/byte (BF16 weights) | Still memory-bound; crosses the ridge near batch ≈ 300 |
 
 **The decode vs prefill distinction for LLMs:** during prefill (processing a prompt of length L in parallel), the matmuls are [d_model × L] — large, high AI, compute-bound. During autoregressive decode (generating one token at a time with batch=1), each matmul is [d_model × 1] — equivalent to a matrix-vector product, AI ~= 1 FLOP/byte, entirely memory-bandwidth-bound. This is why:
 1. Prefill is fast (Tensor Core saturated).
@@ -536,24 +578,29 @@ print(f"Decode AI (b=1): {ai_decode:.1f} FLOP/byte -> memory-bound by {ridge_poi
 
 ---
 
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Blackwell Ultra gave up most of its FP64 and INT8 throughput to make room for more FP4. What does that bet say about which workloads NVIDIA expects to dominate, and what happens to customers whose models do not quantize well to 4 bits?</p>
+</div>
+
 ## Consumer vs Datacenter GPUs
 
 Not all GPUs are equal. The divide between consumer (gaming) and datacenter cards is wide:
 
-| Feature | Consumer (RTX 4090) | Datacenter (H100 SXM5) | Why It Matters |
-|---------|---------------------|------------------------|----------------|
-| Process | TSMC 4N | TSMC 4N | Same node |
-| VRAM | 24 GB GDDR6X | 80 GB HBM3 | Model size limit |
-| Mem BW | 1008 GB/s | 3350 GB/s | 3.3× at large batch |
-| BF16 TC TFLOPS | ~165 (effective) | ~989 | 6× compute throughput |
-| FP8 TC TFLOPS | ~330 | ~1979 | 6× at FP8 |
-| NVLink | None | 900 GB/s bidirectional | Multi-GPU training |
-| ECC Memory | Optional | Always-on | Training stability |
-| TDP | 450 W | 700 W | ~1.6× power |
-| Price | ~$2,000 | ~$30,000+ | 15× cost |
-| PCIe vs SXM | PCIe | SXM (direct die attach) | ~2× BW to CPU |
+| Feature | Consumer (RTX 5090, 2025) | Datacenter (H100 SXM) | Datacenter (B200) | Why It Matters |
+|---------|---------------------|------------------------|------|----------------|
+| Process | TSMC 4N | TSMC 4N | TSMC 4NP, two dies | Same node family |
+| Memory | 32 GB GDDR7 | 80 GB HBM3 | 180–192 GB HBM3e | Model size limit |
+| Mem BW | 1,792 GB/s | 3,350 GB/s | 8,000 GB/s | Decode speed |
+| BF16 tensor TFLOPS (dense) | ~419 (FP16 accumulate) / ~209 (FP32) | ~989 | ~2,250 | Training and prefill |
+| FP8 tensor TFLOPS (dense) | ~838 / ~419 | ~1,979 | ~4,500 | |
+| GPU-to-GPU link | None (PCIe only) | NVLink 4, 900 GB/s | NVLink 5, 1.8 TB/s | Multi-GPU training |
+| ECC on memory | Optional (GDDR7) | Always-on | Always-on | Long-run integrity |
+| Power | 575 W | 700 W | 1,000 W | Cooling and density |
+| Price (approx.) | ~$2,000 | ~$25,000–30,000 | ~$35,000–45,000 | Cost per FLOP vs cost per GB |
+| Form factor | PCIe card | SXM module on HGX board | SXM / GB200 superchip | NVLink and power delivery |
 
-The SXM form factor (H100 SXM5, A100 SXM4) bypasses the PCIe connector and bonds the GPU die directly to a carrier, enabling the full 900 GB/s NVLink 4.0 fabric. In consumer PCIe GPUs, NVLink is absent — multi-GPU must use PCIe (64 GB/s effective bidirectional at PCIe 4.0 ×16).
+The SXM form factor is a mezzanine module that plugs into an HGX baseboard, which carries the NVLink and NVSwitch wiring between GPUs and delivers 700–1,200 W per module. The connection to the host CPU is still PCIe (or NVLink-C2C on Grace superchips). Consumer PCIe GPUs have no NVLink since the RTX 40 series, so multi-GPU traffic goes over PCIe at ~32–64 GB/s per direction.
 
 For training large models (7B+), the combination of ECC memory, NVLink, large VRAM, and sustained Tensor Core throughput makes datacenter GPUs a qualitatively different product, not just a faster consumer card.
 
@@ -565,13 +612,15 @@ GPU generations follow a consistent pattern of expanding Tensor Core capabilitie
 
 | Architecture | Year | Key ML Addition |
 |---|---|---|
-| Volta (V100) | 2017 | First Tensor Cores (FP16 only); 900 GB/s NVLink 2; HBM2 900 GB/s |
+| Volta (V100) | 2017 | First Tensor Cores (FP16 only); NVLink 2 (300 GB/s); HBM2 900 GB/s |
 | Turing (T4, RTX 20xx) | 2018 | INT8 + INT4 Tensor Cores; RT Cores for ray tracing; GDDR6 |
 | Ampere (A100) | 2020 | BF16 + TF32 Tensor Cores; sparsity (2:4); HBM2e 2 TB/s; NVLink 3 |
 | Hopper (H100) | 2022 | FP8 Tensor Cores; Transformer Engine; 4th-gen TC; HBM3 3.35 TB/s; NVLink 4 |
 | Blackwell (B200) | 2024 | FP4 Tensor Cores (NVFP4); 5th-gen TC; HBM3e 8 TB/s; NVLink 5; GB200 NVL72 |
+| Blackwell Ultra (B300) | 2025 | 1.5× FP4 throughput; 288 GB HBM3e; GB300 NVL72 |
+| Rubin (VR200) | 2026 | HBM4 (~20+ TB/s); NVLink 6 (3.6 TB/s); Vera CPU; NVL72 racks; paired with Groq-derived LPX decode racks |
 
-Each generation has roughly **doubled effective BF16 throughput** while also doubling HBM bandwidth — keeping the ridge point in the 200–400 FLOP/byte range and thus keeping large matrix multiplications compute-bound.
+At BF16, each generation has roughly doubled to tripled tensor throughput while bandwidth grew 1.6–2.4×, so the BF16 ridge point stayed between ~140 and ~300 FLOP/byte. The real shift comes from new low-precision formats: each one doubles math per byte without making memory faster, so measured in each chip's fastest format the ridge has climbed from ~140 (V100) to ~1,900 (B300 FP4). See [Chapter 34](./34_generational_improvements.md) and the [Accelerator Atlas](./atlas.md).
 
 ---
 
@@ -600,7 +649,7 @@ The GPU's architecture directly shapes every major optimization you apply to a n
   <div class="diagram-card purple">
     <div class="card-icon">🗜️</div>
     <div class="card-title">Quantization (INT8/INT4)</div>
-    <div class="card-desc">INT8 Tensor Cores give 2× the BF16 throughput; INT4 gives 4×. More importantly, quantization shrinks model size → fits in VRAM, reduces HBM bandwidth needed per token.</div>
+    <div class="card-desc">FP8 and INT8 Tensor Cores give 2× the BF16 throughput; FP4 on Blackwell gives 4×. More importantly, quantization shrinks the model → fits in VRAM, and cuts the HBM bytes per token → faster memory-bound decode.</div>
   </div>
   <div class="diagram-card orange">
     <div class="card-icon">⬡</div>
@@ -626,13 +675,51 @@ The GPU's story does not end here. [Chapter 27 — Why GPUs Won AI](./27_why_gpu
 - A GPU hides memory latency through **massive multithreading**: thousands of warps reside on-chip simultaneously, and the warp scheduler switches to eligible warps the instant another stalls — zero context-switch cost.
 - The **Streaming Multiprocessor (SM)** is the fundamental compute unit: H100 has 132 SMs, each with 128 CUDA cores, 4 Tensor Core units, 256 KB register file, and 228 KB shared memory / L1. All SMs share 50 MB L2 and 80 GB HBM3 at 3.35 TB/s.
 - **Warps** (32 threads in SIMT lockstep) are the hardware's unit of scheduling; **warp divergence** (threads taking different branches) serializes execution and must be avoided in hot kernels.
-- **Tensor Cores** are dedicated MMA hardware that perform a 16×16×16 matmul fragment per clock; they provide ~16× the raw throughput of CUDA FP32 cores and dominate neural network FLOPS. They support FP16, BF16, TF32, INT8, INT4, FP8 (Hopper), and FP4 (Blackwell).
-- The **GPU memory hierarchy** — registers (~19 TB/s), shared memory (~19 TB/s), L2 (~10 TB/s), HBM (~3.35 TB/s), PCIe/NVLink — determines which operations are compute-bound vs memory-bound. The roofline ridge point for H100 BF16 is ~295 FLOP/byte.
+- **Tensor Cores** are dedicated MMA hardware: each H100 Tensor Core does 512 dense BF16 FMAs per clock, giving ~15× the FP32 CUDA-core throughput. They support FP16, BF16, TF32, INT8 and FP8 (Hopper), and FP4/FP6 (Blackwell).
+- The **GPU memory hierarchy** (registers → shared memory/L1 → L2 → HBM → host) spans ~30 to ~800 cycles of latency and three orders of magnitude of bandwidth, and decides which operations are compute-bound vs memory-bound. The H100's BF16 ridge point is ~295 FLOP/byte.
 - **LLM decode is memory-bandwidth-bound at small batch sizes** (AI ~1–2 FLOP/byte); Tensor Cores sit idle. Larger batches or quantization (reducing bytes per token) are the levers.
 - **Kernel fusion, BF16/FP8 dtypes, large batch sizes, and quantization** are not magic — they are direct consequences of the GPU's architecture: Tensor Core dtype requirements, the roofline ridge, the warp multithreading model, and the VRAM capacity limit.
 
+## Check Yourself
+
+<details class="check">
+<summary>How many warps can an H100 SM keep resident if a kernel uses 96 registers per thread?</summary>
+<p>65,536 / (96 × 32) = 21.3, rounded down to the allocation granularity: about 20 warps, i.e. ~31 % occupancy (other limits such as shared memory may cut it further).</p>
+</details>
+
+<details class="check">
+<summary>Why does the 64×N×16 shape of wgmma matter for writing fast Hopper kernels?</summary>
+<p>A warpgroup must hand the Tensor Cores a 64-row tile and stream B from shared memory asynchronously; kernels that use the older per-warp mma.sync or tiles that are not multiples of the instruction shape leave a large fraction of Hopper's tensor throughput unused.</p>
+</details>
+
+<details class="check">
+<summary>A kernel achieves 2.9 TB/s and 40 TFLOPS on an H100. Which roof is it under and what would you try?</summary>
+<p>Its intensity is 40 / 2.9 ≈ 14 FLOP/byte, far below the 295 ridge, and 2.9 TB/s is ~87 % of the 3.35 TB/s peak: it is memory-bound and near the limit. Only moving fewer bytes helps: fuse it with neighbours, use a smaller datatype, or restructure for reuse.</p>
+</details>
+
+<details class="check">
+<summary>Why did H100 run its HBM3 below the 6.4 Gbps the standard allows?</summary>
+<p>Power, signal integrity and supply: running thousands of interposer wires faster costs energy and margin, and the first HBM3 parts were binned for speed. NVIDIA chose 5 stacks at ~5.2 Gbps (3.35 TB/s); H200 later raised it with HBM3e.</p>
+</details>
+
+<details class="check">
+<summary>What is the difference between occupancy and utilization?</summary>
+<p>Occupancy is how many warps are resident relative to the maximum; utilization is how busy the execution units actually are. High occupancy helps hide latency but does not guarantee utilization; well-pipelined kernels (e.g. GEMMs using TMA and wgmma) often run at low occupancy and near-peak utilization.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| NVIDIA H100 Tensor Core GPU Architecture | NVIDIA, 2022 | [resources.nvidia.com/en-us-tensor-core/gtc22-…](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper) | SM layout, Tensor Core rates, HBM3 configuration |
+| NVIDIA Blackwell Architecture Technical Brief | NVIDIA, 2024 | [resources.nvidia.com/en-us-blackwell-architec…](https://resources.nvidia.com/en-us-blackwell-architecture) | FP4/FP6, second-generation Transformer Engine, NV-HBI |
+| CUDA C++ Programming Guide | NVIDIA | [docs.nvidia.com/cuda/cuda-c-programming-guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/) | Thread hierarchy, occupancy, CUDA Graphs |
+| PTX ISA: warpgroup-level matrix instructions (wgmma) and tcgen05 | NVIDIA | [docs.nvidia.com/cuda/parallel-thread-execution](https://docs.nvidia.com/cuda/parallel-thread-execution/) | Tensor Core instruction shapes per generation |
+| Dissecting the NVIDIA Volta GPU Architecture via Microbenchmarking | Z. Jia et al., 2018 | [arxiv.org/abs/1804.06826](https://arxiv.org/abs/1804.06826) | Measured cache and memory latencies (method used for later generations too) |
+| Chips and Cheese: Nvidia's H100 | Chips and Cheese, 2023 | [chipsandcheese.com](https://chipsandcheese.com/) | Measured H100 cache bandwidth and latency |
+
 ---
 
-*Next: [Chapter 16 — TPUs & Systolic Arrays](./16_tpus_and_systolic_arrays.md), where we meet Google's purpose-built matrix-multiply chip and learn how a systolic array achieves even higher arithmetic intensity than a GPU by eliminating the memory hierarchy almost entirely for the innermost computation.*
+**Next:** [Chapter 16 — TPUs & Systolic Arrays](./16_tpus_and_systolic_arrays.md) — We meet Google's purpose-built matrix-multiply chip and learn how a systolic array achieves even higher arithmetic intensity than a GPU by eliminating the memory hierarchy almost entirely for the innermost computation.
 
 [← Back to Table of Contents](./README.md)
