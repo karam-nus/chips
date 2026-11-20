@@ -20,7 +20,7 @@ Before building the hardware, recall what neural network training and inference 
 
 $$C = A \cdot B, \quad A \in \mathbb{R}^{M \times K},\; B \in \mathbb{R}^{K \times N},\; C \in \mathbb{R}^{M \times N}$$
 
-The total compute is $2 \cdot M \cdot K \cdot N$ floating-point operations (one multiply + one add per MAC). For a typical LLM with hidden size 8192 and sequence length 2048, a single attention projection is roughly $2 \times 2048 \times 8192 \times 8192 \approx 275 \text{ GFLOP}$ — and this happens dozens of times per token, per layer, for every element in the batch.
+The total compute is $2 \cdot M \cdot K \cdot N$ floating-point operations (one multiply + one add per MAC). For a typical LLM with hidden size 8192 and sequence length 2048, a single attention projection is roughly $2 \times 2048 \times 8192 \times 8192 \approx 275 \text{ GFLOP}$ — and a layer contains several such projections, repeated for every sequence in the batch.
 
 The naive way to compute a GEMM is to stream matrix rows and columns from memory. The problem: at machine-learning scale, memory bandwidth becomes the bottleneck. As we established in [Chapter 11 — Memory Wall & Bandwidth](./11_memory_wall_and_bandwidth.md), bandwidth is precious and compute is cheap — the goal is to *maximize arithmetic intensity* (FLOPs per byte of memory traffic).
 
@@ -186,6 +186,17 @@ On real hardware the "loop over cycle" is the clock, the "loop over n" is the N 
 
 ---
 
+Step through the same idea interactively. This lab uses the output-stationary variant (each cell keeps its partial sum), which makes the diagonal wavefront easiest to see; the MXU holds weights stationary instead, with identical timing skew.
+
+<div class="lab" data-lab="systolic"><noscript><div class="lab-noscript">The systolic array lab needs JavaScript.</div></noscript></div>
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Trillium quadrupled the MAC count by moving from 128×128 to 256×256 arrays. A 256-wide array needs 256-wide tiles to stay full and takes ~510 cycles to fill and drain. For which layers of a modern model (attention heads of dimension 128, MoE experts with few tokens each, decode at small batch) does that trade start to hurt?</p>
+</div>
+
+---
+
 ## The bf16 Datatype: Google's Contribution
 
 Before examining TPU generations, we need to understand **bfloat16 (bf16)**, because Google invented it specifically for TPU training.
@@ -233,15 +244,13 @@ print(f"FP32: {x:.6f}  →  BF16 approx: {bf16_to_fp32(bf):.6f}")
 
 ### TPUv1 (2015, deployed 2016) — Inference Only
 
-Google deployed the TPUv1 internally to serve production inference workloads (AlphaGo ran on it). Design priorities: **high throughput INT8 inference** at low power, no training.
+Google deployed the TPUv1 in its data centres in 2015 and disclosed it in 2016, to serve production inference (AlphaGo ran on it). Design priorities: **high-throughput INT8 inference** at low power, no training.
 
 - **Matrix Multiply Unit (MXU):** 256 × 256 systolic array = 65,536 INT8 MAC units. Peak: 92 TOPS INT8 (tera-operations/second).
-- **Weights FIFO:** 28 MB of on-chip weight memory — large enough to buffer layers and keep the MXU fed.
-- **Accumulators:** 4 MB of 32-bit accumulator registers.
-- **Unified buffer:** 24 MB SRAM for activations.
-- **Memory:** 8 GB LPDDR3 at ≈34 GB/s — modest by modern standards; the philosophy was "keep weights on-chip."
-- **Process:** 28 nm (older node), minimal area devoted to control.
-- **Power:** ≈40 W TDP — under a typical PCIe card.
+- **On-chip memory:** a 24 MiB Unified Buffer for activations and 4 MiB of 32-bit accumulators; weights stream in from off-chip DRAM through a weight FIFO four 64 KiB tiles deep.
+- **Memory:** 8 GiB of DDR3 at ≈34 GB/s — modest by modern standards, and the main bottleneck the paper itself identified.
+- **Process:** 28 nm, with only a few percent of the die devoted to control.
+- **Power:** 75 W TDP (about 40 W measured under load) on a PCIe card.
 
 The TPUv1 had **no HBM, no floating-point training capability, and no programmable scalar unit** — it was purely a GEMM accelerator connected to a host CPU via PCIe. Despite this narrowness, it delivered ~30× better performance/watt than contemporary CPUs for neural-net inference in Google's production services.
 
@@ -249,59 +258,79 @@ The TPUv1 had **no HBM, no floating-point training capability, and no programmab
 
 TPUv2 introduced training capability, requiring gradient computation and higher precision.
 
-- **MXU:** 128 × 128 systolic array (two chips on a board), bf16 input → FP32 accumulation.
-- **HBM:** 8 GB HBM per chip at **600 GB/s** — critical for training's larger activation footprints.
-- **Vector Unit (VPU):** 128-element SIMD for non-matmul ops (softmax, layer norm, activation functions).
-- **Scalar Unit:** General-purpose control and scalar computation.
-- **Inter-chip interconnect (ICI):** Each chip has **2D torus links** at **600 GB/s** bidirectional — allowing TPU Pods without CPU-mediated communication.
-- **TPU Pod:** 64 TPUv2 chips in a 2D torus, ≈11.5 PFLOP/s peak (bf16).
-- **Peak per chip:** 45 TFLOP/s bf16.
+- **MXU:** each chip has two TensorCores, each with one 128 × 128 systolic array taking bf16 inputs and accumulating in FP32.
+- **HBM:** 16 GiB per chip at ~600–700 GB/s, critical for training's larger activation footprints.
+- **Vector Unit (VPU):** 128-lane SIMD for non-matmul ops (softmax, layer norm, activation functions).
+- **Scalar Unit:** control flow and address computation.
+- **Inter-chip interconnect (ICI):** dedicated chip-to-chip links forming a **2D torus**, so pods need no CPU or NIC in the communication path.
+- **TPU Pod:** 256 TPUv2 chips, ≈11.5 PFLOP/s peak (bf16).
+- **Peak per chip:** ~45 TFLOP/s bf16.
 
 ### TPUv3 (2018) — Liquid Cooling + More Memory
 
-- **MXU:** Same architecture as v2, but faster clock and two MXUs per chip.
-- **HBM:** 16 GB at **900 GB/s**.
-- **Peak:** 420 TFLOP/s bf16 per chip (with two MXUs).
-- **Pod:** 256 chips, ≈100 PFLOP/s — trained BERT in 76 minutes.
-- **Cooling:** First liquid-cooled TPU (chip power ≈250 W, necessitating direct water cooling).
+- **MXU:** two MXUs per TensorCore (four per chip) at a higher clock.
+- **HBM:** 32 GiB per chip at **900 GB/s**.
+- **Peak:** ~123 TFLOP/s bf16 per chip (Google's often-quoted 420 TFLOP/s is a four-chip board).
+- **Pod:** 1,024 chips, >100 PFLOP/s; a v3 pod trained BERT in 76 minutes (with the LAMB optimizer).
+- **Cooling:** the first liquid-cooled TPU.
 
 ### TPUv4 (2021, publicly available 2023)
 
-- **Architecture:** Redesigned MXU; FP32, bf16, INT8, complex number formats.
-- **HBM2e:** 32 GB at **1.2 TB/s**.
-- **Peak:** 275 TFLOP/s bf16 per chip.
-- **ICI:** 3D torus topology — 6 high-speed optical interconnects per chip.
-- **Pod:** 4096 chips in a 3D torus, >1 EFLOP/s (bf16).
-- **Optical Reconfigurable Interconnect (OCS):** Software-defined topology — the pod's torus wiring can be reconfigured in minutes to accommodate different parallelism strategies.
+- **Architecture:** four MXUs per TensorCore, two TensorCores per chip, plus **SparseCores** for embedding lookups and a 128 MiB on-chip CMEM.
+- **HBM2:** 32 GiB at **1.2 TB/s**.
+- **Peak:** 275 TFLOP/s bf16 per chip (each 128 × 128 MXU delivers ~34 TFLOP/s at ~1 GHz).
+- **ICI:** 3D torus; chips inside a 4 × 4 × 4 cube are wired electrically, and cubes connect through **optical circuit switches (OCS)**.
+- **Pod:** 4,096 chips, ~1.1 EFLOP/s (bf16).
+- **Reconfigurable topology:** the OCS can rewire the torus in software, routing around failed cubes and reshaping the slice for different parallelism strategies.
 
 ### TPUv5e and TPUv5p (2023)
 
 Google split the v5 family into two SKUs:
 
-- **TPUv5e** ("e" = efficiency): Optimized for cost-effective inference and fine-tuning. 393 TFLOP/s bf16, 16 GB HBM, 1.6 Tb/s ICI. 256 chips per pod.
-- **TPUv5p** ("p" = performance): Maximum training throughput. 459 TFLOP/s bf16, 95 GB HBM3, 4.8 Tb/s ICI per chip. 8960 chips per pod (≈4 EFLOP/s pod).
+- **TPUv5e** ("e" = efficiency): cost-optimised training and serving. 197 TFLOP/s bf16 (394 TOPS INT8), 16 GB HBM2e at 819 GB/s, 1,600 Gb/s ICI. 256 chips per pod.
+- **TPUv5p** ("p" = performance): maximum training throughput. 459 TFLOP/s bf16, 95 GB HBM2e at 2.76 TB/s, 4,800 Gb/s ICI per chip. 8,960 chips per pod (≈4.1 EFLOP/s).
 
-### Trillium — TPUv6 (2024)
+### Trillium — TPUv6e (2024)
 
-- **Peak:** 4× the compute of TPUv5e per chip — ≈1570 TFLOP/s bf16 (estimated from Google's 4× claim).
-- **HBM:** 192 GB HBM3e, ~4.7 TB/s bandwidth.
-- **ICI bandwidth:** 1.8× vs v5e.
-- **Power efficiency:** 67% better performance/watt vs v5e.
-- **Pod scale:** Up to 100,000+ chips in a cluster via Titanium infrastructure.
+- **Peak:** 918 TFLOP/s bf16 (1,836 TOPS INT8), 4.7× TPUv5e, mostly from **256 × 256 MXUs** (four times the MACs of a 128 × 128 array) and a higher clock.
+- **HBM:** 32 GB at **1.64 TB/s** (double v5e's capacity and bandwidth).
+- **ICI:** 3,584 Gb/s per chip, 2× v5e; 256 chips per pod, scaled further over Google's data-centre network.
+- **Efficiency:** 67 % better performance per watt than v5e.
+
+### Ironwood — TPUv7 (2025)
+
+- **Peak:** 4,614 TFLOP/s **FP8** (the first TPU with native FP8), ~2,307 TFLOP/s bf16, in a dual-chiplet package.
+- **HBM:** 192 GB of HBM3e at **7.37 TB/s**, six times Trillium's capacity.
+- **ICI:** 1.2 TB/s bidirectional per chip; **pods of 9,216 chips** (~42.5 EFLOP/s FP8), liquid-cooled.
+- **Positioning:** Google's "age of inference" chip, generally available from late 2025; Anthropic's multi-gigawatt TPU commitment runs largely on it.
+
+### TPU 8t and TPU 8i (announced April 2026)
+
+For the first time Google split a generation into two chips:
+
+- **TPU 8t** (training): 12.6 PFLOP/s **FP4**, 216 GB HBM3e at ~6.5 TB/s, 9,600-chip superpods, and a Virgo network that links over 134,000 chips.
+- **TPU 8i** (inference): 10.1 PFLOP/s FP4, 288 GB HBM3e at ~8.6 TB/s, **384 MB of on-chip SRAM** to keep KV caches and hot weights close, and a new "Boardfly" topology instead of the 3D torus, tuned for the all-to-all traffic of mixture-of-experts serving.
+
+Both add native FP4 to the MXU and use Arm-based Axion CPUs as hosts. The split mirrors the industry's: training wants bandwidth between chips; decode wants memory capacity and bandwidth per chip.
 
 ---
 
 ## TPU Generations at a Glance
 
-| Generation | Year | Peak (TFLOP/s bf16) | HBM | HBM BW | ICI BW/chip | Key dtype |
-|:----------:|:----:|:-------------------:|:---:|:-------:|:-----------:|:---------:|
-| TPUv1 | 2016 | 92 TOPS INT8 | — | 34 GB/s (LPDDR3) | — | INT8 |
-| TPUv2 | 2017 | 45 | 8 GB HBM | 600 GB/s | 600 GB/s | bf16 |
-| TPUv3 | 2018 | 420 | 16 GB HBM | 900 GB/s | 900 GB/s | bf16 |
-| TPUv4 | 2021 | 275 | 32 GB HBM2e | 1,200 GB/s | ~1,600 GB/s | bf16/INT8 |
-| TPUv5e | 2023 | 393 | 16 GB HBM | 1,600 GB/s | 1,600 Gb/s | bf16/INT8 |
-| TPUv5p | 2023 | 459 | 95 GB HBM3 | 4,800 GB/s | 4,800 Gb/s | bf16/INT8 |
-| Trillium (v6) | 2024 | ~1,570 | 192 GB HBM3e | ~4,700 GB/s | ~3,200 Gb/s | bf16/INT8 |
+| Generation | Year | Peak per chip | HBM | HBM BW | ICI per chip | New formats |
+|:----------:|:----:|:-------------:|:---:|:------:|:------------:|:-----------:|
+| TPUv1 | 2015 | 92 TOPS INT8 | 8 GiB DDR3 | 34 GB/s | — (PCIe card) | INT8 |
+| TPUv2 | 2017 | ~45 TFLOP/s bf16 | 16 GiB HBM | ~600–700 GB/s | 2D torus | bf16 |
+| TPUv3 | 2018 | ~123 TFLOP/s bf16 | 32 GiB HBM | 900 GB/s | 2D torus | — |
+| TPUv4 | 2021 | 275 TFLOP/s bf16 | 32 GiB HBM2 | 1,200 GB/s | 3D torus + OCS | INT8 |
+| TPUv5e | 2023 | 197 TFLOP/s bf16 | 16 GB HBM2e | 819 GB/s | 1,600 Gb/s | — |
+| TPUv5p | 2023 | 459 TFLOP/s bf16 | 95 GB HBM2e | 2,765 GB/s | 4,800 Gb/s | — |
+| Trillium (v6e) | 2024 | 918 TFLOP/s bf16 | 32 GB | 1,640 GB/s | 3,584 Gb/s | — |
+| Ironwood (v7) | 2025 | 4,614 TFLOP/s FP8 | 192 GB HBM3e | 7,370 GB/s | 1.2 TB/s | FP8 |
+| TPU 8t | 2026 (announced) | 12.6 PFLOP/s FP4 | 216 GB HBM3e | ~6,500 GB/s | Virgo network | FP4 |
+| TPU 8i | 2026 (announced) | 10.1 PFLOP/s FP4 | 288 GB HBM3e | ~8,600 GB/s | Boardfly | FP4 |
+
+Sources: Google's TPU papers and Cloud TPU documentation; TPU 8 figures are Google's announcement values. Compare with GPUs in the [Accelerator Atlas](./atlas.md).
 
 ---
 
@@ -326,12 +355,12 @@ A single TPU chip is powerful, but the real advantage of TPUs at Google's scale 
 
 The ICI is a **dedicated, high-bandwidth, low-latency** network on the same substrate as the chips. Key properties:
 
-- **Bandwidth:** Up to 4.8 Tb/s bidirectional per chip (v5p) — comparable to NVLink on NVIDIA's flagship GPUs but integrated into the pod's topology without a switch.
-- **Latency:** Sub-microsecond between adjacent chips (in-package links on v4 are optical).
+- **Bandwidth:** 4.8 Tb/s per chip on v5p and 1.2 TB/s on Ironwood: the same order as NVLink on NVIDIA's flagship GPUs, but wired directly chip-to-chip into the torus instead of through switches.
+- **Latency:** sub-microsecond between neighbouring chips; links between 4 × 4 × 4 cubes pass through optical circuit switches.
 - **Topology:** 2D torus (v2/v3), 3D torus (v4+). In a 3D torus with $d \times d \times d$ chips, the diameter is $3 \cdot d/2$ hops — a 16×16×16 pod has diameter 24 hops at sub-µs per hop.
 - **All-reduce efficiency:** The torus topology allows ring-based all-reduce with near-linear bandwidth scaling, which is why data-parallel training across thousands of chips is efficient — unlike CPU-based parameter servers with PCIe bottlenecks.
 
-> **For model optimization:** This ICI design is why "tensor parallelism" on TPU Pods is different from GPU clusters. On a TPU Pod you can split a single attention head across 8 chips with negligible ICI overhead; on a GPU cluster you pay NVLink latency and PCIe bandwidth asymmetry. The pod is the reason Google could train PaLM (540B parameters) across 6144 TPUv4 chips with 57.5% hardware utilization — among the highest ever reported for a supercomputer at that scale.
+> **For model optimization:** this ICI design makes model-parallel sharding across a slice of a TPU pod relatively cheap compared with crossing a GPU cluster's scale-out network, which is why JAX/XLA programs on TPUs routinely shard tensors across dozens of chips with `jax.sharding`. The torus does favour nearest-neighbour patterns: all-to-all traffic (mixture-of-experts routing) is costlier, which is part of why TPU 8i moved away from it.
 
 ---
 
@@ -385,7 +414,7 @@ C = my_matmul(A, B)  # XLA compiles → MXU executes 4096×8192×4096 GEMM in bf
 print(C.shape, C.dtype)  # (4096, 4096) bfloat16
 ```
 
-> **Practical implication:** When you see `jax.jit` or `tf.function` with `experimental_compile=True`, you are submitting to XLA's pipeline. The "first step is slow" problem in JAX training loops is XLA compilation. The payoff is that every subsequent step runs the fully-optimized, statically-scheduled binary — with zero Python overhead.
+> **Practical implication:** When you see `jax.jit` or `tf.function(jit_compile=True)`, you are submitting to XLA's pipeline. The "first step is slow" problem in JAX training loops is XLA compilation. The payoff is that every subsequent step runs the fully-optimized, statically-scheduled binary — with zero Python overhead.
 
 ---
 
@@ -399,7 +428,7 @@ Beyond the MXU, a TPU chip contains several functional units that handle the ops
   <div class="diagram-card accent">
     <div class="card-icon">⚙️</div>
     <div class="card-title">MXU (Matrix Multiply Unit)</div>
-    <div class="card-desc">128×128 or 256×256 systolic array; bf16 in → FP32 accum; ~2 TFLOP/s/MXU</div>
+    <div class="card-desc">128×128 (v2–v5) or 256×256 (Trillium onward) systolic array; bf16 in → FP32 accumulate; ~34 TFLOP/s per 128×128 MXU at ~1 GHz</div>
   </div>
   <div class="diagram-card green">
     <div class="card-icon">📐</div>
@@ -414,12 +443,12 @@ Beyond the MXU, a TPU chip contains several functional units that handle the ops
   <div class="diagram-card purple">
     <div class="card-icon">💾</div>
     <div class="card-title">Unified Buffer (SRAM)</div>
-    <div class="card-desc">8–16 MB scratchpad; holds activations and MXU output between layers</div>
+    <div class="card-desc">Tens of MiB of scratchpad SRAM (vector memory), plus a 128 MiB CMEM on v4; holds activations and MXU outputs between layers</div>
   </div>
   <div class="diagram-card orange">
     <div class="card-icon">🧠</div>
     <div class="card-title">HBM (High-Bandwidth Memory)</div>
-    <div class="card-desc">16–192 GB off-chip; weights + KV-cache + optimizer states</div>
+    <div class="card-desc">16–288 GB per chip; weights, KV cache, optimizer states</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-icon">🔗</div>
@@ -445,11 +474,11 @@ This double-buffering hides HBM latency behind MXU compute — critical to susta
 
 While this chapter focuses on TPUs, the systolic concept appears throughout modern AI hardware:
 
-- **NVIDIA Tensor Cores** (Volta onward): Each tensor core performs a 4×4 (Volta) or 8×8 (Hopper) warp-level GEMM per clock. The tiles are small, but multiple tensor cores per SM operate simultaneously, and the data movement is managed by the register file — a partial-systolic design. See [Chapter 15 — GPUs](./15_gpus.md).
-- **Apple Neural Engine** (ANE): Contains a systolic-style MAC array optimized for INT8 and FP16 inference. The M4 ANE delivers ~38 TOPS.
-- **Qualcomm Hexagon HTP:** DSP-derived, includes a 4×4 or 8×8 MAC array for INT8/INT4 inference.
+- **NVIDIA Tensor Cores** (Volta onward): each one is a small matrix-multiply array, 64 FMAs per clock on Volta growing to 512 per clock on Hopper, fed by warps or warpgroups. The tiles are small, but four Tensor Cores per SM work at once, and data reuse inside each tile follows the same principle as a systolic array.
+- **Apple Neural Engine** (ANE): a fixed-function MAC array for INT8/FP16 inference (Apple does not publish its microarchitecture); 38 TOPS on M4.
+- **Qualcomm Hexagon NPU:** scalar, vector and tensor (matrix) units side by side; the tensor unit handles INT8/INT4/FP16 matrix math.
 - **Renesas DRP-AI:** Dataflow-array (systolic-inspired) for embedded vision inference; see [Chapter 17](./17_npus_and_edge_ai.md).
-- **Groq LPU:** An extreme-systolic design where the entire model is compiled into a single deterministic instruction stream flowing through a massive 2D array.
+- **Groq LPU:** not systolic in the classic sense but closely related: a compiler-scheduled, deterministic pipeline in which data streams across functional slices, including a large matrix unit, with no caches or dynamic scheduling.
 
 The systolic array's efficiency at dense GEMM is so high that almost every purpose-built AI accelerator includes one. The differences are in size, supported dtypes, surrounding memory hierarchy, and how the compiler fills it.
 
@@ -461,13 +490,13 @@ Understanding TPU architecture converts several mysterious constraints into clea
 
 **1. Pad your shapes to multiples of 128 (or 256).** The MXU tiles in 128-element increments. A linear layer with output dimension 4097 wastes 127/128 of the last MXU tile. In practice: always choose hidden sizes divisible by 128. `nn.Linear(8192, 8192)` is ideal; `nn.Linear(8192, 8193)` wastes ≈1% of cycles.
 
-**2. bf16 is the native dtype for TPU training.** Using FP32 halves your MXU utilization (each cell does one FP32 MAC vs two bf16 MACs). On TPUs, always train in bf16 unless there is a specific reason to use FP32 (e.g., loss scaling tests).
+**2. bf16 (and now FP8/FP4) is the native dtype for TPU training.** The MXU multiplies bf16 natively; FP32 matmuls are emulated with three or six bf16 passes, so they run several times slower. Train in bf16 with FP32 accumulation unless you have a specific reason not to.
 
 **3. Static shapes reduce recompilation.** Dynamic shapes (variable sequence length, variable batch size) trigger XLA recompilation. Bucketing your data (e.g., pad all sequences to the nearest power of 2) avoids recompile storms and keeps the XLA cache hot.
 
-**4. The MXU roofline is different from a GPU.** A TPU's MXU has very high peak TFLOP/s but lower memory bandwidth relative to that peak compared to a GPU. The arithmetic-intensity threshold for "compute bound" on a TPUv5e is roughly 393 TFLOP/s ÷ 1,600 GB/s ≈ 246 FLOP/byte. Small batch sizes (e.g., batch=1 autoregressive decode) have low arithmetic intensity and will leave the MXU nearly idle. **Large batch training is where TPUs shine; single-stream inference is often bandwidth-limited.**
+**4. The MXU roofline is different from a GPU.** The ridge point is chip-specific: TPU v5e 197 TFLOP/s ÷ 819 GB/s ≈ 240 FLOP/byte, Trillium ≈ 560, Ironwood (FP8) ≈ 626. Small batch sizes (e.g., batch-1 autoregressive decode) have low arithmetic intensity and leave the MXU nearly idle. **Large-batch training is where TPUs shine; single-stream decode is bandwidth-limited, which is what TPU 8i's large SRAM and HBM target.**
 
-**5. Data parallelism across ICI is cheap.** Gradient all-reduces across the ICI are done in hardware (via dedicated ring-reduce logic) at full ICI bandwidth, without touching HBM. This means you can scale data-parallel training to thousands of chips with near-linear throughput scaling — something that is much harder on GPU clusters where all-reduce saturates the NVLink/Infiniband fabric.
+**5. Collectives across ICI are cheap.** Gradient all-reduces and sharded-tensor collectives run directly over the chip-to-chip links, with no CPUs, NICs or switches in the path, and XLA schedules them to overlap with compute. That is why data- and model-parallel scaling across a pod slice is comparatively easy.
 
 ---
 
@@ -475,14 +504,53 @@ Understanding TPU architecture converts several mysterious constraints into clea
 
 - A **systolic array** is a 2-D grid of MAC cells where weights are stationary and activations stream through; it achieves O(N²) compute with O(N) memory I/O, yielding extremely high arithmetic intensity for dense GEMM.
 - **bf16** (8-bit exponent, 7-bit mantissa) was invented by Google to match FP32's dynamic range while halving memory and compute cost; it is now ubiquitous across all AI hardware.
-- **TPUv1** (2016) was an INT8 inference accelerator; **TPUv2/v3** added bf16 training + HBM; **TPUv4** added 3D ICI; **Trillium (v6)** reaches ~1.5 TFLOP/s per chip with 192 GB HBM.
+- **TPUv1** (2015) was an INT8 inference accelerator; **TPUv2/v3** added bf16 training and HBM; **TPUv4** added a 3D torus with optical switching; **Trillium** reaches 918 TFLOP/s bf16; **Ironwood** adds FP8, 192 GB and 9,216-chip pods; **TPU 8t/8i** split training from inference with native FP4.
 - The **MXU** is the TPU's systolic core; scalar and vector units handle control and non-GEMM operations; HBM feeds weights; the Unified Buffer (SRAM scratchpad) orchestrates data flow.
 - **XLA compilation** requires static shapes but eliminates per-op overhead, fuses entire graphs, and generates fully-pipelined MXU schedules — the reason JAX's first step is slow but subsequent steps are fast.
 - The **ICI torus** (2D/3D, sub-µs, Tb/s) allows gradient all-reduce without CPUs or switches, enabling near-linear scaling to thousands of chips in a TPU Pod.
 - Systolic arrays appear inside **GPU tensor cores, Apple's ANE, Qualcomm Hexagon, and most NPUs** — the TPU made the idea famous, but the concept now underlies the whole AI-hardware industry.
 
+## Check Yourself
+
+<details class="check">
+<summary>Why does a weight-stationary systolic array need only O(N) memory traffic per O(N²) MACs per cycle?</summary>
+<p>Weights are loaded once and stay in the cells; on each cycle only one new column of activations enters the N rows and one row of partial sums leaves the N columns, so N values in and N out feed N² multiply-accumulates.</p>
+</details>
+
+<details class="check">
+<summary>What is the bf16 ridge point of Trillium, and is batch-64 decode compute-bound on it?</summary>
+<p>918 TFLOP/s ÷ 1.64 TB/s ≈ 560 FLOP/byte. Batch-64 decode with bf16 weights has intensity ≈ 64, far below 560, so it is memory-bound.</p>
+</details>
+
+<details class="check">
+<summary>Why did Google's 420 TFLOP/s TPUv3 figure confuse comparisons with GPUs?</summary>
+<p>It describes a four-chip Cloud TPU v3 board, not one chip (~123 TFLOP/s). Comparing per-board TPU numbers with per-GPU numbers overstates the TPU by 4×; always normalise to the same unit.</p>
+</details>
+
+<details class="check">
+<summary>Why does XLA want static shapes on TPUs?</summary>
+<p>It compiles the whole program ahead of time into a fixed schedule of MXU tiles, DMAs and collectives. A new shape means a new schedule and a recompilation, so variable sequence lengths are usually bucketed or padded.</p>
+</details>
+
+<details class="check">
+<summary>What does TPU 8i change compared with Ironwood, and why does that suit inference?</summary>
+<p>More HBM (288 GB) and bandwidth per chip, 384 MB of on-chip SRAM, native FP4 and a Boardfly topology instead of a 3D torus. Decode is limited by bytes per token and by all-to-all expert routing, not by chip-to-chip training bandwidth.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Why Systolic Architectures? | H. T. Kung, IEEE Computer 1982 | [doi.org/10.1109/MC.1982.1653825](https://doi.org/10.1109/MC.1982.1653825) | The systolic array concept |
+| In-Datacenter Performance Analysis of a Tensor Processing Unit | N. Jouppi et al., ISCA 2017 | [arxiv.org/abs/1704.04760](https://arxiv.org/abs/1704.04760) | TPUv1 design, memory sizes, 75 W TDP |
+| A Domain-Specific Supercomputer for Training Deep Neural Networks | N. Jouppi et al., CACM 2020 | [doi.org/10.1145/3360307](https://doi.org/10.1145/3360307) | TPUv2/v3 chips, HBM, ICI and pods |
+| TPU v4: An Optically Reconfigurable Supercomputer for Machine Learning | N. Jouppi et al., ISCA 2023 | [arxiv.org/abs/2304.01433](https://arxiv.org/abs/2304.01433) | 3D torus, optical circuit switches, SparseCores |
+| Cloud TPU system architecture (v5e, v5p, v6e) | Google Cloud | [cloud.google.com/tpu/docs/system-architecture…](https://cloud.google.com/tpu/docs/system-architecture-tpu-vm) | Per-chip compute, HBM and ICI figures |
+| Ironwood: The first Google TPU for the age of inference | Google, 2025 | [blog.google/products/google-cloud/ironwood-tp…](https://blog.google/products/google-cloud/ironwood-tpu-age-of-inference/) | Ironwood FP8 compute, 192 GB HBM3e, 9,216-chip pods |
+| TPU 8t and TPU 8i technical deep dive | Google Cloud, 2026 | [cloud.google.com/blog/products/compute/tpu-8t…](https://cloud.google.com/blog/products/compute/tpu-8t-and-tpu-8i-technical-deep-dive) | Eighth-generation training/inference split |
+
 ---
 
-*Next: [Chapter 17 — NPUs & Edge AI Accelerators](./17_npus_and_edge_ai.md), where we leave the data center and look at how AI inference is squeezed into a smartphone, a microcontroller, and an always-on sensor at milliwatt power budgets.*
+**Next:** [Chapter 17 — NPUs & Edge AI Accelerators](./17_npus_and_edge_ai.md) — We leave the data center and look at how AI inference is squeezed into a smartphone, a microcontroller, and an always-on sensor at milliwatt power budgets.
 
 [← Back to Table of Contents](./README.md)
