@@ -51,7 +51,8 @@ Bare-metal code must:
 
 ```c
 /* bare_metal_startup.c — runs before any OS on an ARM Cortex-M MCU */
-/* The linker places _start at the reset vector (address 0x00000004)  */
+/* The second word of the vector table (address 0x00000004) holds the address of _start; */
+/* on reset the core loads SP from word 0 and jumps there.                              */
 
 extern int main(void);
 extern unsigned int _stack_top;        /* from linker script */
@@ -90,21 +91,24 @@ When your GPU hangs and the driver reports "firmware mismatch" or "GSP firmware 
 **Microcode** is the internal, writable instruction table that maps **complex ISA instructions → simpler micro-operations** inside a CISC processor. It exists one level *below* assembly but one level *above* the logic gates — in a ROM (or SRAM with updates) inside the CPU itself.
 
 ```text
-CPU internal layers (Intel x86-64):
+Conceptual: how a microcoded x86 instruction executes
 
 Assembly/machine code (ISA level):
-  FDIV  ST(0), ST(1)     ; floating-point divide
+  REP MOVSB              ; copy RCX bytes from [RSI] to [RDI]
 
-                ↓  hardware decode
+                ↓  the simple decoders cannot express this in a few µops,
+                ↓  so the front end hands off to the microcode sequencer (MSROM)
 
-Microcode ROM lookup:
-  µop0: FMUL_APPROX  →  initial reciprocal estimate
-  µop1: FNMA_CORR    →  Newton-Raphson refinement iteration 1
-  µop2: FNMA_CORR    →  Newton-Raphson refinement iteration 2
-  µop3: FMUL_FINAL   →  multiply numerator by refined reciprocal
+Microcode ROM emits a loop of µops, chosen by size and alignment:
+  µop: LOAD   tmp ← [RSI]        (16–64 bytes at a time when aligned)
+  µop: STORE  [RDI] ← tmp
+  µop: ADD    RSI, RDI += chunk ; SUB RCX -= chunk
+  µop: BRANCH back while RCX > 0
 
-                ↓  these µops execute in the out-of-order engine
+                ↓  these µops execute in the out-of-order engine like any others
 ```
+
+Most common instructions (ADD, MOV, VFMADD) decode directly to one or two µops in hardware; the microcode ROM handles the rare, complex ones such as `REP MOVS`, `CPUID`, `XSAVE` and x87 transcendental functions.
 
 Microcode is security-critical: CPU vulnerabilities like **Spectre/Meltdown (2018)** and **REPTAR (2023)** were partially patched by microcode updates loaded by the OS at boot (`/lib/firmware/intel-ucode/` on Linux). Microcode updates can *slow* a chip (adding checks) or fix silent data corruption bugs — which is why training cluster operators must stay current.
 
@@ -115,7 +119,7 @@ Microcode is security-critical: CPU vulnerabilities like **Spectre/Meltdown (201
 ```text
 Machine code bytes (x86-64, hexadecimal):
   48 01 D0              ; ADD rax, rdx
-  C5 FC 58 05 00 00 00  ; VADDPS ymm0, ymm0, [rip+offset]  (AVX2)
+  C5 FC 58 05 00 00 00 00   ; VADDPS ymm0, ymm0, [rip+disp32]  (AVX, VEX-encoded)
   66 0F EF C0           ; PXOR xmm0, xmm0  (SSE2 zero a register)
 ```
 
@@ -239,12 +243,12 @@ entry:
 
 ; More interesting: vectorized loop kernel
 ; C source: void scale(float* x, float s, int n) { for(int i=0;i<n;i++) x[i]*=s; }
-define void @scale(float* %x, float %s, i32 %n) {
+define void @scale(ptr %x, float %s, i32 %n) {
 entry:
-  %vscale = insertelement <4 x float> undef, float %s, i32 0
-  %vsplat = shufflevector <4 x float> %vscale, <4 x float> undef,
+  %vscale = insertelement <4 x float> poison, float %s, i32 0
+  %vsplat = shufflevector <4 x float> %vscale, <4 x float> poison,
                            <4 x i32> zeroinitializer    ; broadcast scalar to vector
-  ; ... loop body would use vector multiply ...
+  ; ... a vectorized loop over x would use %vsplat here ...
   ret void
 }
 ```
@@ -330,13 +334,13 @@ module tb_accumulator;
         @(posedge clk); rst_n = 1;
         en = 1; din = 8'h03;            // add 3 each cycle
         repeat(4) @(posedge clk);       // 4 cycles → dout should be 12
-        $display("dout=%0d (expect 12)", dout);
+        #1 $display("dout=%0d (expect 12)", dout);
         $finish;
     end
 endmodule
 ```
 
-The `always @(posedge clk)` block is the heart of RTL: it describes logic that executes on every rising clock edge — this maps directly to flip-flops (the D-type latch from Chapter 2) in silicon.
+The `always @(posedge clk)` block is the heart of RTL: it describes logic that executes on every rising clock edge — this maps directly to edge-triggered D flip-flops (Chapter 2) in silicon.
 
 ### VHDL
 
@@ -453,7 +457,7 @@ Key concepts:
 - **Device**: the GPU and its memory (VRAM/HBM). Device kernels run on thousands of GPU threads.
 - **Kernel function**: annotated `__global__`, launched on the device, executed by many threads
 - **Thread hierarchy**: threads → warps (32 threads, execute in lockstep) → thread blocks (≤1024 threads) → grid (all blocks for one kernel launch)
-- **Memory spaces**: global (HBM, slow, ~1–2 TB/s), shared (SRAM per SM, fast, ~20 TB/s), registers (fastest, private per thread)
+- **Memory spaces**: global (HBM, ~3–8 TB/s per datacenter GPU), shared (SRAM per SM, tens of TB/s in aggregate), registers (fastest, private per thread)
 
 ```cuda
 // === CUDA C++ ===
@@ -549,7 +553,7 @@ PTX vs SASS relationship:
                          PTX is forward-compatible; SASS is generation-specific
 ```
 
-**Why this matters for ML:** if you ship a model or inference engine with PTX, it will work on future NVIDIA GPUs (driver compiles PTX → new SASS). If you ship SASS for SM80, it will NOT work on SM90 (Hopper) without recompiling. `torch.jit` and TensorRT packages often embed PTX for this reason.
+**Why this matters for ML:** if you ship a model or inference engine with PTX, it will work on future NVIDIA GPUs (driver compiles PTX → new SASS). If you ship SASS for SM80, it will NOT work on SM90 (Hopper) without recompiling. PyTorch wheels therefore embed SASS for every supported generation *plus* PTX for the newest one, so they still run (after a one-time JIT) on GPUs released later.
 
 ### ROCm and HIP (AMD)
 
@@ -560,21 +564,20 @@ AMD's answer to CUDA is **ROCm** (Radeon Open Compute) with the **HIP** (Heterog
 #include <hip/hip_runtime.h>
 
 __global__ void vec_add_hip(const float* A, const float* B, float* C, int N) {
-    int idx = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;   // same built-ins as CUDA
     if (idx < N) C[idx] = A[idx] + B[idx];
 }
 
-// Launch: hipLaunchKernelGGL(func, grid, block, shared_mem, stream, args...)
-hipLaunchKernelGGL(vec_add_hip, dim3(blocks), dim3(256), 0, 0, d_A, d_B, d_C, N);
+vec_add_hip<<<blocks, 256>>>(d_A, d_B, d_C, N);         // HIP accepts CUDA's launch syntax
 ```
 
-AMD's assembly equivalent to PTX is **HSAIL** (legacy) / **GCN ISA** / **RDNA/CDNA ISA**. The compute-focused GPUs (MI300X) use the **CDNA** architecture. PyTorch supports ROCm officially; many libraries have HIP ports.
+AMD has no stable virtual ISA like PTX. ROCm compiles through LLVM's AMDGPU back end straight to the target's machine ISA, named by `gfx` number (gfx90a for MI250X, gfx942 for MI300X/MI325X, gfx950 for MI350/MI355X), so ROCm libraries are built per generation. The compute GPUs use the **CDNA** architecture; consumer Radeon cards use **RDNA**. PyTorch supports ROCm officially, and most major libraries have HIP ports.
 
 ### OpenCL and SYCL/oneAPI
 
-**OpenCL** (Open Computing Language, Khronos Group): the open standard for heterogeneous computing — CPU, GPU, FPGA, DSP. Vendor-neutral but more verbose than CUDA. Used in Apple Metal's ancestor, and still used for some FPGA and edge targets.
+**OpenCL** (Open Computing Language, Khronos Group): the open standard for heterogeneous computing — CPU, GPU, FPGA, DSP. Vendor-neutral but more verbose than CUDA. Apple originated it in 2008 and later deprecated it in favour of Metal; it survives mainly on FPGAs, embedded GPUs and mobile.
 
-**SYCL** (Single-source Heterogeneous Programming for C++): the modern C++17-based open standard, championed by Intel as part of their **oneAPI** initiative. Compiles the same source for CPU (AVX), GPU (Intel Xe / Arc / Gaudi), and FPGA.
+**SYCL** (Single-source Heterogeneous Programming for C++): the modern C++17-based open standard, championed by Intel as part of their **oneAPI** initiative. Compiles the same source for CPUs, Intel GPUs (Xe, Arc, Data Center GPU Max) and FPGAs, and, through AdaptiveCpp or Codeplay's plugins, for NVIDIA and AMD GPUs.
 
 ```cpp
 // === SYCL/oneAPI ===
@@ -627,7 +630,9 @@ def vec_add(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return c
 ```
 
-Triton is the layer where most ML practitioners who "write custom kernels" actually work. Flash Attention 2 is written in Triton. xFormers and many custom attention operators use Triton. It generates PTX internally — you get performance close to hand-written CUDA with much less C++ boilerplate.
+Triton is the layer where most ML practitioners who "write custom kernels" actually work, and it is what `torch.compile` emits for most fused GPU operations. Its tutorials include a fused-attention (FlashAttention-2 style) kernel; the reference FlashAttention-2 and -3 implementations themselves are CUDA C++ built on CUTLASS/CuTe. You give up some control over warp-level details in exchange for far less boilerplate.
+
+Triton started a wave of **tile-level kernel languages**: you describe what a block of threads does to a tile, and the compiler handles threads, shared-memory staging and tensor-core instructions. CUTLASS 4's Python **CuTe DSL**, NVIDIA's **cuTile**, **TileLang**, **ThunderKittens** and Modular's **Mojo** all sit at roughly this layer.
 
 ### Intrinsics
 
@@ -656,7 +661,7 @@ CUDA also has intrinsics: `__float2half_rn()`, `__hfma()`, `__ldg()` (texture ca
 
 The **GPU driver** is a kernel-mode (ring 0) component of the OS that owns the GPU hardware — it manages VRAM allocation, context switching between processes, firmware communication, and translating high-level API calls into hardware register writes.
 
-The **GPU runtime** (e.g., `libcuda.so`, `librocm_smi.so`) is the user-space library your process links against. `cudaMalloc`, `cudaMemcpy`, `cudaLaunchKernel` are runtime calls.
+The **GPU runtime** is the user-space library your process links against: `libcudart.so` for CUDA (`cudaMalloc`, `cudaMemcpy`, `cudaLaunchKernel`), `libamdhip64.so` for ROCm. It sits on the **user-mode driver** (`libcuda.so`), which talks to the kernel-mode driver. On recent NVIDIA GPUs much of the device management runs as firmware on the GPU's own RISC-V GPU System Processor (GSP).
 
 ```text
 Call stack when you call cuda kernel:
@@ -696,11 +701,11 @@ y = x @ w   # <-- trace this line through the stack
   <div class="flow-arrow accent"></div>
   <div class="flow-node blue wide">cuBLAS / cuBLASLt library: GEMM kernel selection (BLAS Level 3)</div>
   <div class="flow-arrow accent"></div>
-  <invoke name="flow-node purple wide">CUDA PTX kernel: uses Tensor Core wmma / mma instructions (H100: BF16 Tensor Cores)</invoke>
+  <div class="flow-node purple wide">cuBLASLt picks a pre-built GEMM kernel that issues Tensor Core MMA instructions (wgmma on H100, tcgen05 on Blackwell)</div>
   <div class="flow-arrow accent"></div>
-  <div class="flow-node orange wide">Driver JIT-compiles PTX → SASS for your specific GPU (e.g., SM90 for H100)</div>
+  <div class="flow-node orange wide">That kernel ships as SASS for your exact GPU (e.g. sm_90a for H100); PTX is JIT-compiled only if no matching SASS exists</div>
   <div class="flow-arrow accent"></div>
-  <div class="flow-node cyan wide">GPU hardware: Tensor Cores execute 16×16×16 BF16 matrix tiles per cycle</div>
+  <div class="flow-node cyan wide">GPU hardware: Tensor Cores consume BF16 tiles, e.g. 64×N×16 per warpgroup instruction on H100, accumulating in FP32</div>
   <div class="flow-arrow accent"></div>
   <div class="flow-node teal wide">Transistors: billions of MOSFETs switching on/off to perform the multiply-accumulates</div>
 </div>
@@ -716,6 +721,11 @@ y = compiled_fn(x, w)
 TorchInductor generates a **Triton kernel** (or falls back to cuBLAS for large GEMMs), compiles Triton → PTX via LLVM → driver JIT → SASS. The path is longer but the result can be faster because the compiler can fuse operations (e.g., matmul + activation + layer norm in one kernel launch, avoiding round-trips to HBM).
 
 ---
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Each new GPU generation adds instructions (wgmma on Hopper, tcgen05 on Blackwell) that older PTX cannot express, so the newest tensor-core paths need recompiled code. If you ship an inference engine today, which layer should you depend on (cuBLAS, Triton, a tile DSL, hand-written PTX) to get those paths automatically next year, and what do you give up?</p>
+</div>
 
 ## The Master Glossary Table
 
@@ -743,7 +753,7 @@ TorchInductor generates a **Triton kernel** (or falls back to cuBLAS for large G
 | **HIP** | AMD's CUDA-compatible GPU programming API (part of ROCm) | Accelerator |
 | **OpenCL** | Open, vendor-neutral heterogeneous compute standard | Accelerator |
 | **SYCL / oneAPI** | Modern C++17-based open heterogeneous programming (Intel) | Accelerator |
-| **Triton** | Python-like language for writing GPU kernels; compiles to PTX/GCN | Accelerator |
+| **Triton** | Python-like tile language for GPU kernels; compiles to PTX (NVIDIA) or AMDGCN (AMD) | Accelerator |
 | **PTX** | NVIDIA's virtual GPU assembly ISA; forward-compatible across generations | GPU ISA |
 | **SASS** | NVIDIA's actual binary GPU ISA for a specific SM generation | GPU ISA |
 | **Intrinsic** | C/C++ function that maps 1-to-1 to a specific assembly instruction | Toolchain |
@@ -783,7 +793,7 @@ TorchInductor generates a **Triton kernel** (or falls back to cuBLAS for large G
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">Firmware / Driver</div>
-    <div class="card-desc">Keep drivers updated — microcode patches fix bugs that silently corrupt training (rare but real). GPU firmware mismatches cause hangs in multi-GPU setups.</div>
+    <div class="card-desc">Keep CPU microcode and GPU drivers and firmware current: updates fix bugs that can hang jobs or, rarely, silently corrupt results. Mismatched driver and firmware versions are a classic cause of multi-GPU hangs.</div>
   </div>
 </div>
 </div>
@@ -798,12 +808,51 @@ The key principle: **each layer is a contract that lets the layer above ignore e
 - **Assembly** is the human-readable 1-to-1 representation of machine code; the toolchain (compiler → assembler → linker → loader) converts source code to a running binary. **LLVM IR** is the portable middle layer many modern compilers share.
 - **RTL (Verilog / VHDL)** is the hardware description layer — the "source code" of a chip. **HLS** compiles C to RTL, lowering the bar for custom hardware.
 - **CUDA** programs the GPU from C++ with a host/device split and a thread hierarchy (thread → warp → block → grid). **PTX** is the forward-compatible virtual GPU ISA; **SASS** is the architecture-specific binary.
-- **Triton** is the practical entry point for ML engineers writing custom GPU kernels — Python-like, compiles to PTX, used for Flash Attention and other fused operators.
+- **Triton** is the practical entry point for ML engineers writing custom GPU kernels: Python-like, tile-level, compiled to PTX or AMDGCN, and the code `torch.compile` generates for fused operators.
 - **"Kernel"** means three different things: OS kernel, compute kernel (GPU function), or mathematical kernel. Context is everything.
 - Every `x @ w` in PyTorch traverses the entire stack — Python → ATen → cuBLAS/Triton → PTX → SASS → Tensor Cores → transistors. Knowing the layers tells you where to intervene when performance is wrong.
 
+## Check Yourself
+
+<details class="check">
+<summary>A colleague says the kernel "panicked" and another says the kernel "spilled registers". Which kernels are they talking about?</summary>
+<p>The first is the OS kernel (a kernel panic is a fatal operating-system error). The second is a GPU compute kernel: the compiler ran out of registers for each thread and spilled values to local memory, which usually hurts performance.</p>
+</details>
+
+<details class="check">
+<summary>Why does shipping PTX keep a CUDA library working on GPUs that did not exist when it was built, and what is the catch?</summary>
+<p>PTX is a virtual ISA that NVIDIA keeps forward-compatible: the driver can compile it to the SASS of any newer GPU at load time. The catch is that PTX written for an old target cannot use new instructions (such as Hopper's wgmma), so it runs, but without the newest fast paths; the JIT also adds start-up time.</p>
+</details>
+
+<details class="check">
+<summary>What is the difference between a latch and a flip-flop, and which one does <code>always @(posedge clk)</code> infer?</summary>
+<p>A latch is level-sensitive: its output follows the input while the enable is high. A flip-flop is edge-triggered: it samples once, on the clock edge. <code>always @(posedge clk)</code> with non-blocking assignments infers flip-flops.</p>
+</details>
+
+<details class="check">
+<summary>Why do ROCm binaries need to be rebuilt for each AMD GPU generation when CUDA binaries with PTX do not?</summary>
+<p>ROCm compiles directly to each target's machine ISA (gfx942, gfx950, ...) and has no forward-compatible virtual ISA like PTX, so a code object only runs on the gfx targets it was built for.</p>
+</details>
+
+<details class="check">
+<summary>Where in the stack would you intervene to fuse a GELU into the preceding matmul, and why not lower?</summary>
+<p>At the compiler or kernel-library level: <code>torch.compile</code> or a Triton/CUTLASS epilogue fuses the activation into the GEMM so the intermediate never goes to HBM. Going lower (PTX or SASS) gives more control but loses portability and is rarely needed for a fusion the compiler can already express.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| CUDA C++ Programming Guide | NVIDIA | [docs.nvidia.com/cuda/cuda-c-programming-guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/) | Host/device model, thread hierarchy, memory spaces |
+| Parallel Thread Execution ISA (PTX) | NVIDIA | [docs.nvidia.com/cuda/parallel-thread-execution](https://docs.nvidia.com/cuda/parallel-thread-execution/) | PTX as a virtual ISA; wgmma and tcgen05 instructions |
+| LLVM Language Reference Manual | LLVM Project | [llvm.org/docs/LangRef.html](https://llvm.org/docs/LangRef.html) | IR syntax, SSA, opaque pointers, poison values |
+| Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations | P. Tillet, H. T. Kung, D. Cox, MAPL 2019 | [doi.org/10.1145/3315508.3329973](https://doi.org/10.1145/3315508.3329973) | The tile-level programming model |
+| FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning | T. Dao, 2023 | [arxiv.org/abs/2307.08691](https://arxiv.org/abs/2307.08691) | A CUDA/CUTLASS kernel, not a Triton one |
+| IEEE 1800-2023 SystemVerilog (free via the IEEE GET program) | IEEE / Accellera, 2023 | [accellera.org/downloads/ieee](https://www.accellera.org/downloads/ieee) | RTL and verification language used in the examples |
+| HIP Programming Guide | AMD ROCm | [rocm.docs.amd.com/projects/HIP/en/latest](https://rocm.docs.amd.com/projects/HIP/en/latest/) | HIP syntax, gfx targets, ROCm runtime |
+
 ---
 
-*Next: [Chapter 7 — Types of Chips: A Taxonomy](./07_types_of_chips_taxonomy.md), the map of all chip types — CPU, GPU, TPU, NPU, DSP, FPGA, ASIC — and the flexibility/efficiency tradeoff that explains why you train on GPUs and deploy on NPUs.*
+**Next:** [Chapter 7 — Types of Chips: A Taxonomy](./07_types_of_chips_taxonomy.md) — The map of all chip types — CPU, GPU, TPU, NPU, DSP, FPGA, ASIC — and the flexibility/efficiency tradeoff that explains why you train on GPUs and deploy on NPUs.
 
 [← Back to Table of Contents](./README.md)
