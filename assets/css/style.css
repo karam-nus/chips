@@ -1,5 +1,5 @@
 /* ============================================================
-   Dark Theme — NVIDIA Complete Guide (Green Accent)
+   Dark Theme — Chips Guide (Copper Interconnect Accent)
    ============================================================ */
 
 /* --- Custom Properties --- */
@@ -8,7 +8,7 @@
   --bg-surface:     #111111;
   --bg-elevated:    #1a1a1a;
   --bg-code:        #0f0f0f;
-  --bg-highlight:   #0f1a0a;
+  --bg-highlight:   #1f130c;
 
   --border:         #2a2a2a;
   --border-subtle:  #1e1e1e;
@@ -17,10 +17,10 @@
   --text-secondary: #999999;
   --text-muted:     #555555;
 
-  --accent:         #76b900;
-  --accent-dim:     #5a8f00;
-  --accent-glow:    rgba(118, 185, 0, 0.15);
-  --accent-subtle:  rgba(118, 185, 0, 0.08);
+  --accent:         #e8916a;
+  --accent-dim:     #c06c43;
+  --accent-glow:    rgba(232, 145, 106, 0.15);
+  --accent-subtle:  rgba(232, 145, 106, 0.08);
 
   --green:          #22c55e;
   --teal:           #14b8a6;
@@ -30,6 +30,7 @@
   --red:            #ef4444;
   --cyan:           #06b6d4;
   --pink:           #ec4899;
+  --blue:           #3b82f6;
 
   --sidebar-width:  260px;
   --toc-width:      220px;
@@ -787,9 +788,9 @@ body {
 }
 
 .flow-node.blue {
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-  color: var(--accent);
+  border-color: var(--blue);
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--blue);
 }
 
 .flow-node.teal {
@@ -947,6 +948,12 @@ body {
 .diagram-card.green { border-color: var(--green); }
 .diagram-card.green .card-title { color: var(--green); }
 
+.diagram-card.blue { border-color: var(--blue); }
+.diagram-card.blue .card-title { color: var(--blue); }
+
+.diagram-card.red { border-color: var(--red); }
+.diagram-card.red .card-title { color: var(--red); }
+
 .diagram-card.teal { border-color: var(--teal); }
 .diagram-card.teal .card-title { color: var(--teal); }
 
@@ -1038,6 +1045,7 @@ body {
 .layer.pink { border-color: var(--pink); color: var(--pink); background: rgba(236, 72, 153, 0.08); }
 .layer.yellow { border-color: var(--yellow); color: var(--yellow); background: rgba(234, 179, 8, 0.08); }
 .layer.red { border-color: var(--red); color: var(--red); background: rgba(239, 68, 68, 0.08); }
+.layer.blue { border-color: var(--blue); color: var(--blue); background: rgba(59, 130, 246, 0.08); }
 
 .layer small {
   font-weight: 400;
@@ -1150,7 +1158,7 @@ body {
 }
 
 /* ============================================================
-   Tensor Shape Diagrams (NEW — unique to LM guide)
+   Tensor Shape Diagrams
    ============================================================ */
 
 .tensor-shape {
@@ -1191,7 +1199,7 @@ body {
 
 /* Dimension-specific colors */
 .tensor-shape .ts-dim.batch   { background: rgba(34, 197, 94, 0.12); color: var(--green); border: 1px solid rgba(34, 197, 94, 0.25); }
-.tensor-shape .ts-dim.seq     { background: var(--accent-subtle); color: var(--accent); border: 1px solid rgba(59, 130, 246, 0.25); }
+.tensor-shape .ts-dim.seq     { background: var(--accent-subtle); color: var(--accent); border: 1px solid rgba(232, 145, 106, 0.25); }
 .tensor-shape .ts-dim.feature { background: rgba(168, 85, 247, 0.12); color: var(--purple); border: 1px solid rgba(168, 85, 247, 0.25); }
 .tensor-shape .ts-dim.heads   { background: rgba(249, 115, 22, 0.12); color: var(--orange); border: 1px solid rgba(249, 115, 22, 0.25); }
 .tensor-shape .ts-dim.vocab   { background: rgba(236, 72, 153, 0.12); color: var(--pink); border: 1px solid rgba(236, 72, 153, 0.25); }
@@ -1230,6 +1238,122 @@ body {
   gap: 0.375rem;
   flex-wrap: wrap;
   justify-content: center;
+}
+
+/* ============================================================
+   Collapsible Code Pane
+   For listings longer than ~25 lines.
+   ============================================================ */
+
+details.code-fold {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  margin: 1.375rem 0;
+  overflow: hidden;
+}
+
+details.code-fold > summary {
+  cursor: pointer;
+  padding: 0.625rem 0.9375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--bg-elevated);
+  list-style: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background-color var(--transition), color var(--transition);
+}
+
+details.code-fold > summary::-webkit-details-marker { display: none; }
+details.code-fold > summary::marker { content: ''; }
+
+details.code-fold > summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 1em;
+  color: var(--text-muted);
+  transition: transform var(--transition);
+}
+
+details.code-fold[open] > summary::before {
+  content: '▾';
+  color: var(--accent);
+}
+
+details.code-fold > summary:hover { background: var(--bg-highlight); }
+
+details.code-fold[open] > summary {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+details.code-fold > *:not(summary) {
+  margin: 0.75rem 0.9375rem;
+}
+
+details.code-fold > .highlight,
+details.code-fold > pre {
+  margin: 0.75rem 0.9375rem;
+}
+
+/* ============================================================
+   Bit-Layout Strips (kept for anchor/tensor packing figures)
+   For showing sign/exponent/mantissa fields, packed INT4 pairs,
+   and GGUF block layouts byte by byte.
+   ============================================================ */
+
+.bitfield {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+  font-family: var(--font-mono);
+  border-radius: var(--radius-sm);
+}
+
+.bitfield .bf-seg {
+  flex: 1 1 auto;
+  min-width: 2.5rem;
+  padding: 0.4375rem 0.5rem;
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--border);
+  border-right-width: 0;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.bitfield .bf-seg:last-child { border-right-width: 1px; }
+.bitfield .bf-seg:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.bitfield .bf-seg:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+
+.bitfield .bf-seg small {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 0.125rem;
+}
+
+.bitfield .bf-seg.sign     { border-color: var(--red);    background: rgba(239, 68, 68, 0.10);  color: var(--red); }
+.bitfield .bf-seg.exponent { border-color: var(--orange); background: rgba(249, 115, 22, 0.10); color: var(--orange); }
+.bitfield .bf-seg.mantissa { border-color: var(--cyan);   background: rgba(6, 182, 212, 0.10);  color: var(--cyan); }
+.bitfield .bf-seg.scale    { border-color: var(--accent); background: var(--accent-subtle);     color: var(--accent); }
+.bitfield .bf-seg.zero     { border-color: var(--green);  background: rgba(34, 197, 94, 0.10);  color: var(--green); }
+.bitfield .bf-seg.payload  { border-color: var(--purple); background: rgba(168, 85, 247, 0.10); color: var(--purple); }
+.bitfield .bf-seg.pad      { border-color: var(--border); background: var(--bg-surface);        color: var(--text-muted); }
+
+.bitfield-label {
+  text-align: center;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+  font-style: italic;
 }
 
 /* ============================================================
@@ -1372,6 +1496,8 @@ body {
   .tensor-shape {
     font-size: 0.75rem;
   }
+
+  .bitfield .bf-seg { min-width: 2rem; font-size: 0.625rem; padding: 0.375rem 0.3125rem; }
 }
 
 @media (max-width: 480px) {
@@ -1393,4 +1519,611 @@ body {
   .diagram { border-color: #ccc; background: #fafafa; }
   .flow-node, .diagram-card, .layer, .cycle-step, .compare-side { border-color: #ccc; background: #fff; color: #111; }
   .tensor-shape .ts-dim { border-color: #ccc; background: #f0f0f0; color: #333; }
+  details.code-fold { border-color: #ccc; background: #fff; }
+  details.code-fold[open] > summary { background: #f0f0f0; color: #111; }
+  .bitfield .bf-seg { border-color: #ccc; background: #f0f0f0; color: #333; }
+}
+
+/* ============================================================
+   Shared additions (callouts, self-checks, badges, figures, labs)
+   shared across the karam-nus guides
+   ============================================================ */
+
+/* --- Callouts: <div class="callout note|warn|field|myth"> --- */
+.callout {
+  margin: 1.5rem 0;
+  padding: 0.875rem 1.125rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  font-size: 0.875rem;
+}
+.callout .callout-title {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.375rem;
+  color: var(--accent);
+}
+.callout p { margin: 0.25rem 0; }
+.callout.note  { border-left-color: var(--cyan); }
+.callout.note .callout-title  { color: var(--cyan); }
+.callout.warn  { border-left-color: var(--red); background: rgba(239, 68, 68, 0.05); }
+.callout.warn .callout-title  { color: var(--red); }
+.callout.field { border-left-color: var(--green); background: rgba(34, 197, 94, 0.04); }
+.callout.field .callout-title { color: var(--green); }
+.callout.myth  { border-left-color: var(--pink); background: rgba(236, 72, 153, 0.04); }
+.callout.myth .callout-title  { color: var(--pink); }
+
+/* --- Self-check questions: <details class="check"> --- */
+details.check {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  margin: 0.625rem 0;
+}
+details.check > summary {
+  cursor: pointer;
+  padding: 0.625rem 0.9375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  list-style: none;
+}
+details.check > summary::-webkit-details-marker { display: none; }
+details.check > summary::marker { content: ''; }
+details.check > summary::before {
+  content: 'Q';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-right: 0.625rem;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+details.check[open] > summary { border-bottom: 1px solid var(--border-subtle); }
+details.check > *:not(summary) { margin: 0.75rem 0.9375rem; font-size: 0.875rem; color: var(--text-secondary); }
+
+/* --- Badges: <span class="badge apache">Apache-2.0</span> --- */
+.badge {
+  display: inline-block;
+  padding: 0.0625rem 0.4375rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  vertical-align: middle;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+}
+.badge.apache, .badge.mit, .badge.bsd { color: var(--green); border-color: rgba(34, 197, 94, 0.5); }
+.badge.agpl, .badge.gpl                { color: var(--orange); border-color: rgba(249, 115, 22, 0.5); }
+.badge.nc, .badge.closed               { color: var(--red); border-color: rgba(239, 68, 68, 0.5); }
+.badge.preview                         { color: var(--purple); border-color: rgba(168, 85, 247, 0.5); }
+
+/* --- Figures --- */
+figure.figure { margin: 1.75rem 0; text-align: center; }
+figure.figure img { max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); }
+figure.figure figcaption { margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-muted); }
+
+/* --- Interactive labs: <div class="lab" data-lab="iou|nms|map|grid|letterbox"></div> --- */
+.lab {
+  margin: 1.75rem 0;
+  padding: 1.125rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.lab-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-bottom: 0.75rem;
+}
+.lab-body { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
+.lab canvas {
+  background: #0b0b0b;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-width: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+.lab-panel { flex: 1 1 220px; min-width: 200px; font-size: 0.8125rem; }
+.lab-readout {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  background: var(--bg-code);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 0.625rem 0.75rem;
+  white-space: pre-wrap;
+  color: var(--text-primary);
+}
+.lab-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0; align-items: center; }
+.lab-controls label { color: var(--text-secondary); font-size: 0.78rem; display: flex; gap: 0.375rem; align-items: center; }
+.lab button {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.3125rem 0.75rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  cursor: pointer;
+}
+.lab button:hover { background: var(--accent-glow); }
+.lab input[type="range"] { accent-color: var(--accent); width: 120px; }
+.lab select, .lab input[type="number"] {
+  font: inherit; font-size: 0.78rem;
+  background: var(--bg-elevated); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.125rem 0.375rem;
+}
+.lab-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; }
+.lab-noscript { font-size: 0.8125rem; color: var(--text-muted); }
+
+
+
+/* "Ponder" callout: an open question the reader should sit with (family-wide) */
+.callout.ponder { border-left-color: var(--accent); background: rgba(232, 145, 106, 0.05); }
+.callout.ponder .callout-title { color: var(--accent); }
+.callout.ponder .callout-title::before { content: '\25C7  '; }
+
+/* ============================================================
+   CHIPS GUIDE — SITE CHROME
+   Part headers in the sidebar, reading progress, chapter eyebrow,
+   prev/next pager, nav filter, copy-to-clipboard on code.
+   ============================================================ */
+
+:root {
+  --copper:      #e8916a;
+  --copper-hi:   #f6c39f;
+  --gold:        #e3b448;
+  --solder:      #0f3d2a;
+  --solder-dark: #0a2a1d;
+  --silkscreen:  #f2efe4;
+  --silicon-0:   #141a26;
+  --silicon-1:   #1c2436;
+  --paper:       #f6f1e4;
+  --paper-ink:   #22201b;
+  --paper-dim:   #6f6656;
+  --paper-rule:  #cfc5ae;
+  --phosphor:    #4dff88;
+  --blue:        #3b82f6;
+  --font-crt:    'VT323', 'JetBrains Mono', monospace;
+}
+
+/* Sidebar part headers: navigation entries with url: "" */
+.nav-section {
+  padding: 0.75rem 0.75rem 0.25rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.nav-section::before {
+  content: '';
+  width: 6px; height: 6px; flex-shrink: 0;
+  border: 1px solid var(--accent-dim);
+  background: var(--accent-subtle);
+  transform: rotate(45deg);
+}
+.nav-item.active { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* Logo chip glyph */
+.logo-chip { width: 20px; height: 20px; flex-shrink: 0; color: var(--accent); }
+.logo:hover .logo-chip { filter: drop-shadow(0 0 4px var(--accent-glow)); }
+
+/* Sidebar filter */
+.nav-filter { padding: 0.625rem 0.75rem 0; }
+.nav-filter input {
+  width: 100%;
+  font: inherit; font-size: 0.75rem;
+  padding: 0.375rem 0.625rem;
+  background: var(--bg-base); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  outline: none; transition: border-color var(--transition);
+}
+.nav-filter input::placeholder { color: var(--text-muted); }
+.nav-filter input:focus { border-color: var(--accent-dim); }
+.nav-item.filtered-out, .nav-section.filtered-out { display: none; }
+
+/* Reading progress: a copper trace along the top edge */
+.read-progress {
+  position: fixed; top: 0; left: 0; height: 2px; width: 0; z-index: 300;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent), var(--copper-hi));
+  box-shadow: 0 0 6px var(--accent-glow);
+  transition: width 80ms linear;
+}
+
+/* Chapter eyebrow: which Part this page belongs to */
+.chapter-eyebrow {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--accent);
+  padding: 0.25rem 0.625rem;
+  border: 1px solid rgba(232, 145, 106, 0.35);
+  border-radius: 999px;
+  background: var(--accent-subtle);
+  margin-bottom: 1rem;
+}
+.chapter-eyebrow::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+/* Prev / next pager */
+.pager {
+  max-width: 860px; width: 100%; margin: 0 auto; padding: 0 2.5rem 2.5rem;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem;
+}
+.pager a {
+  display: block; padding: 0.875rem 1rem; text-decoration: none;
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  transition: border-color var(--transition), background-color var(--transition), transform var(--transition);
+}
+.pager a:hover { border-color: var(--accent-dim); background: var(--bg-highlight); transform: translateY(-1px); }
+.pager .pg-dir { display: block; font-size: 0.6875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.25rem; }
+.pager .pg-title { display: block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary); }
+.pager .pg-next { text-align: right; grid-column: 2; }
+@media (max-width: 768px) { .pager { padding: 0 1.25rem 2rem; grid-template-columns: 1fr; } .pager .pg-next { grid-column: 1; } }
+
+/* Copy button on code blocks */
+.content div.highlighter-rouge, .content figure.highlight { position: relative; }
+.copy-btn {
+  position: absolute; top: 0.5rem; right: 0.5rem; z-index: 2;
+  font: inherit; font-size: 0.6875rem; line-height: 1;
+  padding: 0.3rem 0.55rem; cursor: pointer;
+  color: var(--text-muted); background: var(--bg-elevated);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  opacity: 0; transition: opacity var(--transition), color var(--transition), border-color var(--transition);
+}
+.content div.highlighter-rouge:hover .copy-btn, .copy-btn:focus { opacity: 1; }
+.copy-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
+.copy-btn.done { color: var(--green); border-color: rgba(34, 197, 94, 0.5); opacity: 1; }
+
+/* ============================================================
+   CHIPS GUIDE — VISUAL GENRES
+   Each genre borrows a picture from the world of silicon so every
+   idea gets an image an engineer has seen before:
+     datasheet · die floorplan · cross-section · flowchart (SVG)
+     spec bars · stat tiles · receipt · CRT · PCB (inline SVG)
+   Blank lines inside an HTML block break kramdown: keep each
+   component contiguous.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. DATASHEET  —  a component datasheet on paper
+   <div class="datasheet"><div class="ds-head">…</div><table>…</table><div class="ds-foot">…</div></div>
+   ------------------------------------------------------------ */
+.datasheet {
+  margin: 1.75rem 0; background: var(--paper); color: var(--paper-ink);
+  border-radius: 4px; overflow: hidden;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.55);
+  font-size: 0.8125rem;
+}
+.ds-head {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.25rem 0.75rem;
+  padding: 0.75rem 1rem 0.625rem; border-bottom: 3px solid var(--paper-ink);
+}
+.ds-part { font-family: var(--font-mono); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.02em; }
+.ds-name { font-weight: 600; color: var(--paper-dim); }
+.ds-stamp {
+  margin-left: auto; font-family: var(--font-mono); font-size: 0.625rem; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: #b3261e; border: 2px solid #b3261e; border-radius: 3px; padding: 0.05rem 0.4rem;
+  transform: rotate(-3deg);
+}
+.ds-stamp.ok { color: #1e7b34; border-color: #1e7b34; }
+.ds-stamp.soon { color: #8a5a00; border-color: #8a5a00; }
+.ds-sub { width: 100%; font-size: 0.72rem; color: var(--paper-dim); }
+.content .datasheet table {
+  display: table; width: 100%; margin: 0; border: none; border-radius: 0;
+  background: transparent; font-size: 0.78rem;
+}
+.content .datasheet thead { background: transparent; }
+.content .datasheet th {
+  color: var(--paper-ink); background: #ebe3cf; border-bottom: 1px solid var(--paper-rule);
+  font-size: 0.66rem; padding: 0.4rem 0.75rem;
+}
+.content .datasheet td { color: var(--paper-ink); border-bottom: 1px solid var(--paper-rule); padding: 0.35rem 0.75rem; }
+.content .datasheet td:first-child { color: var(--paper-dim); white-space: nowrap; }
+.content .datasheet td.v { font-family: var(--font-mono); font-weight: 600; text-align: right; white-space: nowrap; }
+.content .datasheet tbody tr:hover { background: rgba(0,0,0,0.04); }
+.content .datasheet code { background: rgba(0,0,0,0.07); color: inherit; border: none; }
+.ds-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.ds-grid > table + table, .ds-grid > div + div { border-left: 1px solid var(--paper-rule); }
+.ds-foot { padding: 0.45rem 1rem 0.6rem; font-size: 0.68rem; color: var(--paper-dim); border-top: 1px solid var(--paper-rule); }
+.ds-foot a { color: #8a3d17 !important; }
+
+/* ------------------------------------------------------------
+   2. DIE FLOORPLAN  —  a stylised die shot
+   <div class="die-wrap"><div class="die" style="grid-template-areas:…">
+     <div class="blk compute" style="grid-area:a">…</div></div></div>
+   Block kinds: compute · tensor · cache · mem · io · ctrl · npu · gpu · cpu · media
+   ------------------------------------------------------------ */
+.die-wrap { margin: 1.75rem 0; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+.die-frame { display: flex; align-items: stretch; gap: 6px; max-width: 100%; overflow-x: auto; }
+.die {
+  display: grid; gap: 4px; padding: 10px; min-width: 300px; flex: 1;
+  background:
+    linear-gradient(135deg, rgba(120,140,255,0.10), rgba(255,140,200,0.06) 40%, rgba(120,255,220,0.07) 70%, rgba(255,210,120,0.08)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 6px),
+    var(--silicon-0);
+  border: 1px solid #3a4560; border-radius: 3px;
+  box-shadow: 0 0 0 4px #0d111a, 0 0 0 5px #2b3348, 0 14px 30px rgba(0,0,0,0.6);
+  font-size: 0.7rem;
+}
+.blk {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  padding: 0.35rem 0.3rem; min-height: 34px; border-radius: 2px; line-height: 1.25;
+  color: #e8ecf8; font-weight: 600; letter-spacing: 0.01em;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.05);
+}
+.blk small { display: block; font-weight: 400; font-size: 0.6rem; opacity: 0.75; }
+.blk.compute { background: rgba(232,145,106,0.20); border-color: rgba(232,145,106,0.55); }
+.blk.tensor  { background: rgba(236,72,153,0.20);  border-color: rgba(236,72,153,0.55); }
+.blk.cache   { background: rgba(59,130,246,0.18);  border-color: rgba(59,130,246,0.5); }
+.blk.mem     { background: rgba(168,85,247,0.20);  border-color: rgba(168,85,247,0.55); }
+.blk.io      { background: rgba(148,163,184,0.14); border-color: rgba(148,163,184,0.45); }
+.blk.ctrl    { background: rgba(234,179,8,0.16);   border-color: rgba(234,179,8,0.5); }
+.blk.npu     { background: rgba(34,197,94,0.18);   border-color: rgba(34,197,94,0.5); }
+.blk.gpu     { background: rgba(6,182,212,0.18);   border-color: rgba(6,182,212,0.5); }
+.blk.cpu     { background: rgba(249,115,22,0.18);  border-color: rgba(249,115,22,0.5); }
+.blk.media   { background: rgba(20,184,166,0.16);  border-color: rgba(20,184,166,0.5); }
+.hbm-col { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.hbm {
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  display: flex; align-items: center; justify-content: center; flex: 1; min-height: 54px; width: 30px;
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; color: #e9ddff;
+  background: repeating-linear-gradient(0deg, #3b2a5c 0 5px, #4a3672 5px 7px);
+  border: 1px solid #6d55a3; border-radius: 3px;
+}
+.die-caption { font-size: 0.78rem; color: var(--text-muted); text-align: center; max-width: 720px; }
+.die-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.35rem 0.9rem; font-size: 0.7rem; color: var(--text-secondary); }
+.die-legend span::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 0.35rem; border-radius: 2px; vertical-align: -1px; background: var(--k, #555); }
+
+/* ------------------------------------------------------------
+   3. CROSS-SECTION  —  a package sliced open (bottom row = board)
+   <div class="xsec"><div class="xs-row"><div class="xs die" style="flex:3">GPU die</div>…</div></div>
+   ------------------------------------------------------------ */
+.xsec { margin: 1.75rem auto; max-width: 720px; display: flex; flex-direction: column; gap: 3px; padding: 1rem; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.xs-row { display: flex; gap: 3px; align-items: flex-end; }
+.xs {
+  flex: 1; padding: 0.3rem 0.4rem; text-align: center; font-size: 0.68rem; font-weight: 600; line-height: 1.25;
+  border-radius: 2px; color: #f3f4f6; border: 1px solid rgba(255,255,255,0.12);
+}
+.xs small { display: block; font-weight: 400; font-size: 0.6rem; opacity: 0.8; }
+.xs.gap { background: transparent; border-color: transparent; }
+.xs.die  { background: linear-gradient(180deg, #4b5a80, #2f3a58); }
+.xs.dram { background: repeating-linear-gradient(0deg, #4c3a75 0 7px, #5d4790 7px 9px); }
+.xs.bump { background: repeating-linear-gradient(90deg, #c9a227 0 6px, transparent 6px 10px); min-height: 8px; padding: 0; border: none; }
+.xs.tsv  { background: repeating-linear-gradient(90deg, #8a6a3a 0 2px, transparent 2px 9px), #2a3550; }
+.xs.interposer { background: linear-gradient(180deg, #6b7280, #4b5563); }
+.xs.bridge { background: linear-gradient(180deg, #b45309, #92400e); }
+.xs.substrate { background: linear-gradient(180deg, #1f5d3c, #144530); }
+.xs.board { background: linear-gradient(180deg, var(--solder), var(--solder-dark)); color: #cfe9da; }
+.xs.optic { background: linear-gradient(180deg, #0e7490, #155e75); }
+.xs.heat { background: linear-gradient(180deg, #9ca3af, #6b7280); color: #111; }
+
+/* ------------------------------------------------------------
+   4. FLOWCHART  —  inline SVG decision trees and process flows
+   Generated by tools/build_flowcharts.py between
+   <!-- flowchart:NAME --> … <!-- /flowchart --> markers.
+   ------------------------------------------------------------ */
+.flowchart {
+  margin: 1.75rem 0; padding: 1rem 0.75rem 0.75rem;
+  background:
+    radial-gradient(rgba(255,255,255,0.045) 1px, transparent 1.2px) 0 0 / 18px 18px,
+    var(--bg-surface);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  overflow-x: auto;
+}
+.flowchart .fc-title { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); text-align: center; margin-bottom: 0.5rem; }
+.flowchart svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font-sans); }
+.flowchart .fc-caption { font-size: 0.75rem; color: var(--text-muted); text-align: center; margin-top: 0.4rem; }
+.fc-edge { fill: none; stroke: #5b5b5b; stroke-width: 1.5; }
+.fc-edge.yes { stroke: var(--green); }
+.fc-edge.no { stroke: var(--red); }
+.fc-edge.loop { stroke: var(--accent); stroke-dasharray: 5 4; }
+.fc-head { fill: #5b5b5b; }
+.fc-head.yes { fill: var(--green); } .fc-head.no { fill: var(--red); } .fc-head.loop { fill: var(--accent); }
+.fc-elabel { font-size: 10.5px; font-weight: 600; fill: var(--text-secondary); paint-order: stroke; stroke: var(--bg-surface); stroke-width: 4px; }
+.fc-elabel.yes { fill: var(--green); } .fc-elabel.no { fill: var(--red); } .fc-elabel.loop { fill: var(--accent); }
+.fc-node rect, .fc-node polygon { fill: var(--bg-elevated); stroke: var(--border); stroke-width: 1.2; }
+.fc-node text { font-size: 11.5px; fill: var(--text-primary); }
+.fc-node text.sub { font-size: 9.5px; fill: var(--text-muted); }
+.fc-node.decision polygon { fill: #1b1611; stroke: var(--accent-dim); }
+.fc-node.decision text { fill: var(--copper-hi); font-weight: 600; }
+.fc-node.start rect { fill: var(--accent-subtle); stroke: var(--accent); }
+.fc-node.start text { fill: var(--accent); font-weight: 700; }
+.fc-node.leaf rect { stroke-width: 1.5; }
+.fc-node.k-green rect  { fill: rgba(34,197,94,0.10);  stroke: var(--green); }  .fc-node.k-green text:not(.sub)  { fill: var(--green); }
+.fc-node.k-blue rect   { fill: rgba(59,130,246,0.10); stroke: var(--blue); }   .fc-node.k-blue text:not(.sub)   { fill: #7fb0ff; }
+.fc-node.k-purple rect { fill: rgba(168,85,247,0.10); stroke: var(--purple); } .fc-node.k-purple text:not(.sub) { fill: #c99bfa; }
+.fc-node.k-orange rect { fill: rgba(249,115,22,0.10); stroke: var(--orange); } .fc-node.k-orange text:not(.sub) { fill: #fb9a55; }
+.fc-node.k-cyan rect   { fill: rgba(6,182,212,0.10);  stroke: var(--cyan); }   .fc-node.k-cyan text:not(.sub)   { fill: #4fd6ec; }
+.fc-node.k-pink rect   { fill: rgba(236,72,153,0.10); stroke: var(--pink); }   .fc-node.k-pink text:not(.sub)   { fill: #f27ab8; }
+.fc-node.k-yellow rect { fill: rgba(234,179,8,0.10);  stroke: var(--yellow); } .fc-node.k-yellow text:not(.sub) { fill: #f1c84b; }
+.fc-node.k-red rect    { fill: rgba(239,68,68,0.10);  stroke: var(--red); }    .fc-node.k-red text:not(.sub)    { fill: #f38080; }
+.fc-node.k-teal rect   { fill: rgba(20,184,166,0.10); stroke: var(--teal); }   .fc-node.k-teal text:not(.sub)   { fill: #3fd1bf; }
+.flowchart a .fc-node rect, .flowchart a .fc-node polygon { transition: stroke-width var(--transition), filter var(--transition); }
+.flowchart a:hover .fc-node rect { stroke-width: 2.4; filter: drop-shadow(0 0 5px rgba(232,145,106,0.35)); }
+.content .flowchart a { border-bottom: none; }
+
+/* ------------------------------------------------------------
+   5. SPEC BARS  —  horizontal bars for "how much bigger?"
+   <div class="specbars"><div class="sb-title">…</div>
+     <div class="sb-row"><span class="sb-name">…</span><span class="sb-track"><i style="--v:.42"></i></span><span class="sb-val">…</span></div></div>
+   ------------------------------------------------------------ */
+.specbars { margin: 1.5rem 0; padding: 1rem 1.125rem; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.sb-title { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.625rem; text-align: center; }
+.sb-row { display: grid; grid-template-columns: minmax(7rem, 11rem) 1fr minmax(4.5rem, auto); align-items: center; gap: 0.625rem; margin: 0.3rem 0; font-size: 0.78rem; }
+.sb-name { color: var(--text-secondary); text-align: right; line-height: 1.25; }
+.sb-track { height: 14px; background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 3px; position: relative; overflow: hidden; }
+.sb-track i { position: absolute; inset: 0 auto 0 0; width: calc(var(--v, 0.5) * 100%); background: linear-gradient(90deg, var(--accent-dim), var(--accent)); border-radius: 2px; }
+.sb-track i.k2 { background: linear-gradient(90deg, #1d4ed8, var(--blue)); }
+.sb-track i.k3 { background: linear-gradient(90deg, #7e22ce, var(--purple)); }
+.sb-track i.k4 { background: linear-gradient(90deg, #15803d, var(--green)); }
+.sb-track i.k5 { background: linear-gradient(90deg, #b91c1c, var(--red)); }
+.sb-val { font-family: var(--font-mono); font-size: 0.74rem; color: var(--text-primary); white-space: nowrap; }
+.sb-note { font-size: 0.72rem; color: var(--text-muted); text-align: center; margin-top: 0.5rem; }
+@media (max-width: 560px) { .sb-row { grid-template-columns: 6.5rem 1fr auto; } }
+
+/* ------------------------------------------------------------
+   6. STAT TILES  —  big numbers with small labels
+   ------------------------------------------------------------ */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin: 1.5rem 0; }
+.stat { padding: 0.875rem 0.75rem; text-align: center; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); position: relative; overflow: hidden; }
+.stat::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: 0.7; }
+.stat-num { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em; color: var(--text-primary); line-height: 1.1; }
+.stat-num em { font-style: normal; color: var(--accent); }
+.stat-label { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem; line-height: 1.35; }
+
+/* ------------------------------------------------------------
+   7. RECEIPT  —  energy / cost bills on thermal paper (family genre)
+   ------------------------------------------------------------ */
+.receipts { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.75rem 0; }
+.receipt {
+  width: 300px; background: var(--paper); color: var(--paper-ink);
+  font-family: var(--font-mono); font-size: 0.74rem; line-height: 1.55;
+  padding: 1.1rem 1.1rem 1.4rem; position: relative;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.55);
+  -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 14px 100%;
+          mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 14px 100%;
+}
+.receipt:nth-child(2) { transform: rotate(1.2deg); }
+.receipt:nth-child(1) { transform: rotate(-0.8deg); }
+.r-head { text-align: center; font-weight: 700; letter-spacing: 0.12em; font-size: 0.82rem; }
+.r-sub { text-align: center; color: var(--paper-dim); font-size: 0.68rem; margin-bottom: 0.4rem; }
+.r-rule { border-top: 1px dashed var(--paper-dim); margin: 0.45rem 0; }
+.r-line { display: flex; justify-content: space-between; gap: 0.5rem; }
+.r-line span:last-child { white-space: nowrap; }
+.r-line.muted { color: var(--paper-dim); }
+.r-line.hl { background: #fff3b0; margin: 0 -0.3rem; padding: 0 0.3rem; }
+.r-total { display: flex; justify-content: space-between; font-weight: 700; font-size: 0.86rem; }
+.r-foot { text-align: center; color: var(--paper-dim); font-size: 0.66rem; margin-top: 0.55rem; }
+.r-barcode { height: 26px; margin-top: 0.5rem; background: repeating-linear-gradient(90deg, #222 0 2px, transparent 2px 4px, #222 4px 5px, transparent 5px 8px, #222 8px 11px, transparent 11px 12px); }
+
+/* ------------------------------------------------------------
+   8. CRT TERMINAL  —  real tool output, phosphor green (family genre)
+   ------------------------------------------------------------ */
+.crt {
+  margin: 1.5rem 0; border-radius: 14px; padding: 0.6rem; background: linear-gradient(145deg, #2c2c28, #151513);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.crt-bar { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0.5rem 0.45rem; font-size: 0.68rem; color: #9b9b88; font-family: var(--font-mono); }
+.crt-bar::before { content: ''; width: 0.55rem; height: 0.55rem; border-radius: 50%; background: #3ef06b; box-shadow: 0 0 6px #3ef06b; }
+.crt-screen {
+  position: relative; border-radius: 10px; padding: 0.75rem 0.95rem; overflow-x: auto;
+  background: radial-gradient(ellipse at center, #06200f 0%, #020a05 90%);
+  box-shadow: inset 0 0 40px rgba(0,0,0,0.9);
+}
+.crt-screen::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: 10px;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0 1px, transparent 1px 3px);
+}
+.crt-screen pre, .crt pre {
+  margin: 0; background: transparent !important; border: none !important; padding: 0 !important;
+  font-family: var(--font-crt); font-size: 1.04rem; line-height: 1.22; color: var(--phosphor);
+  text-shadow: 0 0 4px rgba(77,255,136,0.55); white-space: pre;
+}
+.crt .warn { color: #ffd34d; text-shadow: 0 0 4px rgba(255,211,77,0.5); }
+.crt .bad  { color: #ff6b6b; text-shadow: 0 0 4px rgba(255,107,107,0.5); }
+.crt .dim  { color: #2e9e57; }
+
+/* ------------------------------------------------------------
+   9. PCB  —  the learning path as a circuit board (inline SVG)
+   ------------------------------------------------------------ */
+.pcb {
+  margin: 1.75rem 0; border-radius: 10px; overflow-x: auto; padding: 0.5rem;
+  background:
+    radial-gradient(circle at 12px 12px, #c9a227 0 4px, #0a2a1d 4.5px 6px, transparent 6.5px) 0 0 / 100% 100% no-repeat,
+    radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1.3px) 0 0 / 10px 10px,
+    linear-gradient(160deg, #134a33, var(--solder) 45%, var(--solder-dark));
+  border: 1px solid #1f6a49;
+  box-shadow: inset 0 0 0 3px rgba(0,0,0,0.25), 0 14px 30px rgba(0,0,0,0.55);
+}
+.pcb svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--font-mono); }
+.pcb .trace { fill: none; stroke: #c98a5a; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.9; }
+.pcb .trace.thin { stroke-width: 1.6; opacity: 0.55; }
+.pcb .via { fill: #0a2a1d; stroke: #e3b448; stroke-width: 2.2; }
+.pcb .pad { fill: #e3b448; stroke: #8a6a1c; stroke-width: 1; transition: fill var(--transition); }
+.pcb a:hover .pad { fill: #ffe08a; }
+.pcb a:hover .ic-body { stroke: #ffe08a; }
+.pcb .ic-body { fill: #151515; stroke: #333; stroke-width: 1.2; }
+.pcb .ic-pin { fill: #bfbfbf; }
+.pcb .silk { fill: var(--silkscreen); font-size: 10px; letter-spacing: 0.04em; }
+.pcb .silk.big { font-size: 11.5px; font-weight: 700; }
+.pcb .silk.dim { fill: rgba(242,239,228,0.6); font-size: 9px; }
+.pcb .ic-label { fill: #e8e8e8; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; }
+.pcb .ic-sub { fill: #9a9a9a; font-size: 8.5px; }
+.content .pcb a { border-bottom: none; }
+
+/* ------------------------------------------------------------
+   10. WAFER (used by the yield lab and static figures)
+   ------------------------------------------------------------ */
+.wafer-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.4rem; }
+.wafer-legend span::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 0.35rem; border-radius: 2px; vertical-align: -1px; background: var(--k, #555); }
+
+/* --- genre fixes: theme link/code/table styles must not leak into paper genres --- */
+.receipt code, .datasheet code { background: rgba(0,0,0,0.07) !important; color: inherit !important; border: none !important; padding: 0 0.2em !important; }
+
+/* ------------------------------------------------------------
+   Labs: chips-specific extras (atlas table, legends, tabs)
+   ------------------------------------------------------------ */
+.lab-legend { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.375rem; }
+.lab-legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
+.lab-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.lab .bits { display: flex; flex-wrap: wrap; gap: 2px; margin: 0.5rem 0; }
+.lab .bit {
+  width: 1.375rem; height: 1.75rem; display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600; cursor: pointer; user-select: none;
+  border: 1px solid var(--border); border-radius: 3px; background: var(--bg-elevated); color: var(--text-primary);
+}
+.lab .bit.s { border-color: var(--red); background: rgba(239,68,68,0.14); color: #fca5a5; }
+.lab .bit.e { border-color: var(--orange); background: rgba(249,115,22,0.14); color: #fdba74; }
+.lab .bit.m { border-color: var(--cyan); background: rgba(6,182,212,0.14); color: #67e8f9; }
+.lab .bit.i { border-color: var(--purple); background: rgba(168,85,247,0.14); color: #d8b4fe; }
+.lab .bit.on { filter: brightness(1.35); box-shadow: inset 0 -3px 0 currentColor; }
+.lab .bit:hover { outline: 1px solid var(--accent); }
+.lab input[type="text"] {
+  font: inherit; font-size: 0.78rem; font-family: var(--font-mono); width: 9rem;
+  background: var(--bg-elevated); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.125rem 0.375rem;
+}
+.atlas-controls { display: flex; flex-wrap: wrap; gap: 0.5rem 0.875rem; align-items: center; margin: 0.75rem 0; font-size: 0.78rem; color: var(--text-secondary); }
+.atlas-controls label { display: inline-flex; align-items: center; gap: 0.35rem; }
+.content .atlas-table td, .content .atlas-table th { white-space: nowrap; font-size: 0.75rem; padding: 0.4rem 0.6rem; }
+.content .atlas-table td.n { font-family: var(--font-mono); text-align: right; }
+.content .atlas-table th { cursor: pointer; user-select: none; }
+.content .atlas-table th.sorted { color: var(--text-primary); }
+.atlas-table tr.dim td { opacity: 0.35; }
+.lab .chip-row { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.4rem 0; }
+.lab .chip-row button { font-size: 0.7rem; padding: 0.2rem 0.5rem; }
+.lab .chip-row button.off { border-color: var(--border); color: var(--text-muted); background: transparent; }
+
+/* --- Print additions --- */
+@media print {
+  .read-progress, .pager, .nav-filter, .copy-btn, .chapter-eyebrow { display: none !important; }
+  .die, .pcb, .crt-screen { box-shadow: none; }
 }
