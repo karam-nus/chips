@@ -24,17 +24,17 @@ Quantization buys you three distinct things. They are governed by different hard
   <div class="diagram-card green">
     <div class="card-icon">📦</div>
     <div class="card-title">1. Memory Footprint</div>
-    <div class="card-desc">Bytes per parameter. Always wins. Decides what *fits* — model + KV cache in HBM. fp16=2B, int8=1B, int4=0.5B.</div>
+    <div class="card-desc">Bytes per parameter. Always wins. Decides what <em>fits</em>: model + KV cache in HBM. fp16=2B, int8=1B, int4=0.5B.</div>
   </div>
   <div class="diagram-card accent">
     <div class="card-icon">🚚</div>
     <div class="card-title">2. Memory Bandwidth</div>
-    <div class="card-desc">Bytes streamed per token. Wins *when memory-bound* (LLM decode). Halving bits ≈ halving decode time. The dominant win for serving.</div>
+    <div class="card-desc">Bytes streamed per token. Wins <em>when memory-bound</em> (LLM decode). Halving bits ≈ halving decode time. The dominant win for serving.</div>
   </div>
   <div class="diagram-card orange">
     <div class="card-icon">⚙️</div>
     <div class="card-title">3. Compute Throughput</div>
-    <div class="card-desc">Math ops/sec. Wins *only* with a native datapath + when compute-bound (prefill, training). int8 ≈ 2× bf16; fp4 ≈ 2× fp8.</div>
+    <div class="card-desc">Math ops/sec. Wins <em>only</em> with a native datapath + when compute-bound (prefill, training). int8 ≈ 2× bf16; fp4 ≈ 2× fp8.</div>
   </div>
 </div>
 </div>
@@ -79,19 +79,21 @@ These are bandwidth-ceiling numbers (real systems hit ~60–80% of them, and the
 
 The third win is the one everyone *expects* and the one that most often fails to materialize. Modern tensor cores can run low-precision matmuls faster because a narrower multiplier is cheaper in silicon (the area of an integer multiplier scales roughly as the *square* of the bit-width — see [Chapter 24](./24_datatypes_and_silicon.md)), so you can pack more of them in the same area and clock them in parallel.
 
-The published peak throughput multipliers, dense, relative to BF16:
+The published peak throughput multipliers, dense, relative to each chip's own BF16 rate:
 
-| Format | H100 (Hopper) | B200 (Blackwell) | Notes |
-|--------|:-------------:|:----------------:|-------|
-| BF16 / FP16 | 1× (baseline) | 1× | The reference |
-| FP8 (E4M3/E5M2) | ~2× | ~2× | Hopper added the FP8 datapath |
-| INT8 | ~2× | ~2× | Available since Turing/Ampere |
-| FP4 (NVFP4/MXFP4) | — (no datapath) | ~2× vs FP8 (~4× vs BF16) | Blackwell-only |
-| INT4 | ~4× (Turing/Ampere had it; **dropped on Hopper**) | varies | Historically inconsistent |
+| Format | H100 (Hopper) | B200 (Blackwell) | B300 (Blackwell Ultra) | Notes |
+|--------|:-------------:|:----------------:|:----------------------:|-------|
+| BF16 / FP16 | 1× (989 TF) | 1× (~2,250 TF) | 1× (~2,250 TF) | The reference |
+| FP8 (E4M3/E5M2) | ~2× | ~2× | ~2× | Hopper added the FP8 datapath |
+| INT8 | ~2× | ~2× | **cut to a small fraction** | Turing → Blackwell; B300 traded it for FP4 |
+| FP4 (NVFP4/MXFP4) | — (no datapath) | ~4× | **~6.7×** | Blackwell and later; also AMD MI355X, Google TPU 8 |
+| INT4 | — (**dropped on Hopper**) | — | — | Turing and Ampere only |
+
+The FP4 column is where vendors now diverge most. Blackwell Ultra spends its area on FP4, so the FP4 rate is 3.3× its FP8 rate rather than 2×. AWS Trainium3 goes the other way: its tensor engine *accepts* OCP MXFP4 inputs but runs them at the MXFP8 rate, so 4-bit weights there save memory and bandwidth but not math. Same bits, three different answers to "will it run faster?", which is the chapter's whole argument in one row.
 
 Two things in that table will save you grief:
 
-1. **A throughput multiplier only exists if the silicon has the datapath.** FP8's 2× is real *on Hopper and newer* — a Ampere A100 has no FP8 units, so FP8 there buys you footprint/bandwidth but *not* compute speed. FP4's 4× is real *on Blackwell* and nonexistent on Hopper. INT4 tensor-core math existed on Turing/Ampere, was **removed on Hopper**, so INT4 on an H100 has *no native matmul path* — its only benefit there is bandwidth/footprint.
+1. **A throughput multiplier only exists if the silicon has the datapath.** FP8's 2× is real *on Hopper and newer* — a Ampere A100 has no FP8 units, so FP8 there buys you footprint/bandwidth but *not* compute speed. FP4's 4× is real *on Blackwell* and nonexistent on Hopper. INT4 tensor-core math existed on Turing/Ampere and was **removed on Hopper** (Blackwell did not bring it back), so INT4 on an H100 or B200 has *no native matmul path*: its only benefit there is bandwidth and footprint.
 2. **The multiplier only helps if you were compute-bound.** Prefill (long-prompt processing) and training are large dense GEMMs sitting well above the roofline ridge ([Chapter 11](./11_memory_wall_and_bandwidth.md)) — compute-bound — so doubling tensor-core throughput roughly doubles their speed. Decode at batch=1 is memory-bound, so the compute multiplier does *nothing* for it; the bandwidth win (Win 2) is what helps there.
 
 ### Which Win Dominates, and When
@@ -114,7 +116,7 @@ This is the crux of the whole chapter. Put the workload on the roofline and the 
 | LLM decode, batch=1 | Memory-bound | Bandwidth | Yes (~2×) | Yes (~4× via fewer bytes) |
 | LLM decode, batch≫ridge | Compute-bound | Throughput | Yes if datapath | Only if INT4 datapath |
 | LLM prefill (long prompt) | Compute-bound | Throughput | Yes if datapath | Rarely (no datapath on Hopper) |
-| Training fwd/bwd | Compute-bound | Throughput | FP8 yes on Hopper | No (precision too low) |
+| Training fwd/bwd | Compute-bound | Throughput | FP8 yes on Hopper+ | INT4 no; NVFP4 on Blackwell+ is emerging |
 | Fitting model in HBM | n/a | Footprint | Yes | Yes |
 
 > **The mental shortcut:** *Footprint always. Bandwidth when memory-bound. Throughput when compute-bound AND the datapath exists.* If you remember nothing else from this chapter, remember those three clauses.
@@ -187,7 +189,9 @@ The granularity choice interacts directly with the hardware:
 
 - **Per-channel weight scales** are nearly free because the scale is constant down a whole output channel — you can apply it once when you write out the accumulated column, *after* the integer reduction. This is why per-channel weights + per-token activations is the standard W8A8 recipe.
 - **Per-group scales** (e.g. one scale per 128 contiguous weights along K) cost more: the kernel must break the K-reduction into blocks, rescale at each block boundary, and accumulate the partial sums in higher precision. The accuracy at INT4 is much better, but the kernel is more complex and slightly slower — this is exactly what GPTQ/AWQ-style INT4 kernels do.
-- **Microscaling formats (MXFP8, MXFP4, NVFP4)** push this to its logical end: the block scale is *part of the number format* — a block of 32 elements shares one tiny power-of-two (E8M0) exponent scale, decoded natively by Blackwell tensor cores. This is the bridge between "quantization" and "a number format," and it's why [Chapter 23](./23_number_formats_deep_dive.md) treats MX formats as first-class dtypes rather than a quantization scheme.
+- **Microscaling formats (MXFP8, MXFP4, NVFP4)** push this to its logical end: the block scale is *part of the number format*. In the OCP MX formats a block of 32 elements shares one power-of-two (E8M0) scale; NVIDIA's NVFP4 uses blocks of 16 with an FP8 (E4M3) scale plus one FP32 scale per tensor. Blackwell, MI355X and TPU 8 tensor units decode these scales in hardware. This is the bridge between "quantization" and "a number format," and it's why [Chapter 23](./23_number_formats_deep_dive.md) treats MX formats as first-class dtypes rather than a quantization scheme.
+
+DeepSeek-V3 is the best-documented production example of fine granularity at 8 bits: it trained in FP8 with one scale per 1×128 tile of activations and per 128×128 block of weights, and it promoted the tensor-core partial sums to FP32 every 128 elements of K because Hopper's FP8 accumulator keeps only about 14 bits of precision. Per-group scaling is not just an INT4 trick; it is how 8-bit *training* was made to work at scale.
 
 > **Granularity is a hardware/accuracy dial.** Coarser = simpler, faster kernels, more accuracy loss. Finer = better accuracy at low bits, but you pay in scale storage and kernel complexity. At INT8 per-channel is usually plenty; at INT4 you almost always need per-group.
 
@@ -266,6 +270,17 @@ This is *the* reason naive W8A8 fails on LLMs and why techniques exist to tame i
 
 We keep this hardware-focused, but the takeaway is: **activation quantization is the hard half of W8A8, and the difficulty is fundamentally about outliers vs. limited integer codes.**
 
+### Try It: Bits, Groups and Outliers
+
+The lab below quantizes a synthetic tensor and reports the signal-to-quantization-noise ratio (SQNR, in dB; every 6 dB is roughly one extra bit of effective precision). Start at INT4 with one scale per tensor and the outliers switched off; then switch them on (0.3% of values become 15× larger) and watch per-tensor SQNR collapse. Move to a group of 128 or 32 and most of the loss comes back for the cost of one scale per group, which the readout charges you in bits per weight. The scheme menu compares the two hardware formats: MXFP4 (power-of-two scale per 32 values) against NVFP4 (FP8 scale per 16). The finer, more precise NVFP4 scale is why it usually wins on accuracy at the same 4 bits.
+
+<div class="lab" data-lab="quant"><noscript><div class="lab-noscript">This lab needs JavaScript. It is also on the <a href="./labs.html">Interactive Labs</a> page.</div></noscript></div>
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>A group size of 128 with an FP16 scale adds 16 / 128 = 0.125 bits per weight. A group of 32 adds 0.5. At what group size does an "INT4" model stop being meaningfully smaller than an INT5 model with no groups, and why do hardware formats use 8-bit scales instead of 16?</p>
+</div>
+
 ### The Accuracy Cliff at INT4 and Below
 
 Accuracy degradation is not linear in bits — there's a cliff. Roughly:
@@ -315,10 +330,10 @@ The cleanest summary of the whole chapter is this honest table:
 | Precision | Memory save vs FP16 | Typical decode speedup (batch=1, memory-bound) | Typical compute speedup (compute-bound) | Typical accuracy impact | Hardware support |
 |-----------|:-------------------:|:----------------------------------------------:|:---------------------------------------:|-------------------------|------------------|
 | FP16/BF16 | 1× (baseline) | 1× | 1× | lossless | Everywhere |
-| FP8 (E4M3) | 2× | ~2× | ~2× (Hopper+) | near-lossless | Hopper, Ada, Blackwell |
-| INT8 (W8A8) | 2× | ~2× | ~2× | <0.5% (with SmoothQuant) | Turing+ (everywhere modern) |
+| FP8 (E4M3) | 2× | ~2× | ~2× (Hopper+) | near-lossless | Hopper, Ada, Blackwell, MI300+, Gaudi 3, Trainium2+, TPU v7+ |
+| INT8 (W8A8) | 2× | ~2× | ~2× | <0.5% (with SmoothQuant) | Turing+, most NPUs (B300 cut it) |
 | INT4 weight-only | 4× | ~3–4× | **~1× (no datapath on Hopper)** | ~1–3% (per-group) | Bandwidth win universal; math win HW-gated |
-| FP4 (NVFP4/MXFP4) | 4× | ~3–4× | ~2× vs FP8 (Blackwell) | small w/ microscaling | Blackwell only |
+| FP4 (NVFP4/MXFP4) | 4× | ~3–4× | ~2–3.3× vs FP8 (Blackwell, B300) | small w/ microscaling | Blackwell+, MI355X+, TPU 8; Trainium3 at FP8 rate |
 | INT2/INT1 | 8–16× | up to 8–16× (if it works) | HW-dependent | severe w/o QAT | Niche/edge |
 
 > **The two-column truth:** the "memory save" column is a hardware *guarantee*. The "compute speedup" column is a *promise conditional on (a) the datapath existing and (b) you being compute-bound.* Practitioners get burned by reading the compute column as if it were the memory column.
@@ -345,14 +360,24 @@ A quick map of what's actually in the silicon, because "does my GPU have the dat
   <div class="timeline-item">
     <div class="timeline-year">Blackwell (2024, B200)</div>
     <div class="timeline-title">FP4 / microscaling (NVFP4, MXFP4, MXFP8)</div>
-    <div class="timeline-desc">Native FP4 ≈ 2× FP8 ≈ 4× BF16; block scales decoded in hardware. The current frontier.</div>
+    <div class="timeline-desc">Native FP4 ≈ 2× FP8 ≈ 4× BF16; block scales decoded in hardware.</div>
+  </div>
+  <div class="timeline-item">
+    <div class="timeline-year">Blackwell Ultra (2025, B300) · MI355X (2025)</div>
+    <div class="timeline-title">FP4 gets the area; INT8 and FP64 shrink</div>
+    <div class="timeline-desc">B300 FP4 ≈ 3.3× its FP8. AMD's MI355X adds OCP FP4 and runs FP6 at the FP4 rate.</div>
+  </div>
+  <div class="timeline-item">
+    <div class="timeline-year">Rubin · TPU 8 · MI455X (2026)</div>
+    <div class="timeline-title">4-bit becomes the headline number</div>
+    <div class="timeline-desc">Rubin quotes ~35 PF NVFP4 for training; Google's TPU 8 adds native FP4 to the MXU. FP4 pretraining moves from paper to product.</div>
   </div>
 </div>
 </div>
 
 - **INT8 is everywhere** on any modern accelerator — the safe, portable choice.
 - **FP8 is Hopper and newer** (and Ada). It tends to beat INT8 on accuracy because its floating-point form handles dynamic range better than fixed-point INT8, which is why FP8 has largely won for *training* in low precision.
-- **FP4 / microscaling is Blackwell-only** in NVIDIA's line; the block-scale format (Chapter 23) is what makes 4-bit accurate enough to be usable.
+- **FP4 / microscaling arrived with Blackwell** in NVIDIA's line and is now on AMD (MI355X onward) and Google (TPU 8). Check the *rate*, not just the support: Trainium3 accepts MXFP4 but computes at the MXFP8 rate. The block-scale format (Chapter 23) is what makes 4-bit accurate enough to be usable.
 
 ### Kernels: Marlin, CUTLASS, and Why INT4 Packing Needs Special Code
 
@@ -415,7 +440,7 @@ print(f"per-channel mean abs error: {err_c:.5f}")   # ~40x smaller: outlier row 
 print(f"per-channel is {err_t / err_c:.1f}x more accurate here")
 ```
 
-Expected: per-channel is dramatically more accurate because the outlier row gets its own scale instead of poisoning all 512 rows — the hardware mechanism behind "use per-channel weight scales."
+Expected: per-tensor mean error around 0.28, per-channel around 0.0073, a ratio of roughly 35–42× depending on the random seed (we checked three seeds with an equivalent NumPy version). The outlier row gets its own scale instead of poisoning all 512 rows, which is the hardware mechanism behind "use per-channel weight scales."
 
 Next, simulate an INT8 matmul with **INT32 accumulation** and verify it matches the FP reference:
 
@@ -449,11 +474,11 @@ y_ref = Wf @ Xf                    # FP32 reference
 y_int8, acc = int8_gemm_simulated(Wf, Xf)
 rel_err = (y_int8 - y_ref).norm() / y_ref.norm()
 print(f"INT32 accumulator dtype: {acc.dtype}, max |acc|: {acc.abs().max().item()}")
-print(f"INT8-GEMM relative error vs FP32: {rel_err.item():.4f}")   # typically ~0.5-1%
+print(f"INT8-GEMM relative error vs FP32: {rel_err.item():.4f}")   # ~0.015 with per-tensor scales
 # Note: max|acc| can exceed 2^15, which is WHY accumulation needs int32, not int16.
 ```
 
-The point of the assertion `max|acc|` is hardware-real: with $K=1024$ and INT8 operands, the accumulator routinely exceeds the 16-bit range, which is the concrete reason tensor cores accumulate in **INT32**.
+The point of printing `max|acc|` is hardware-real: with $K=1024$ and INT8 operands, the largest accumulator value comes out around 100,000, three times past the INT16 limit of 32,767. That is the concrete reason tensor cores accumulate in **INT32**. The relative error of about 1.5% comes almost entirely from the per-tensor scales; per-channel weights and per-token activations bring it down several-fold.
 
 Finally, the memory & bandwidth savings for a 70B model's decode — the calculation you should be able to do in your head:
 
@@ -481,7 +506,7 @@ INT8             1.0            70        20.9        48       2.0x
 INT4             0.5            35        10.4        96       4.0x
 ```
 
-That table is the bandwidth win, made concrete: **decode throughput scales inversely with bytes/param** — entirely a consequence of the memory wall, with no tensor-core involvement.
+One honest caveat: the BF16 row is a ceiling for a single memory system that could hold 140 GB, which one 80 GB H100 cannot. In practice that row runs on two GPUs with tensor parallelism, which is itself a cost the INT4 row avoids. That table is the bandwidth win, made concrete: **decode throughput scales inversely with bytes/param** — entirely a consequence of the memory wall, with no tensor-core involvement.
 
 ---
 
@@ -515,7 +540,7 @@ Concretely, the decisions this drives:
 
 1. **Serving an LLM (decode-heavy)?** Reach for **weight-only INT4** with a fused kernel (Marlin/AWQ/GPTQ). You're memory-bound, so the ~3–4× bandwidth win is real even on hardware with no INT4 math, and footprint lets you raise batch and context. Quantize the **KV cache** too — at long context it's often the bigger win.
 2. **Prefill- or compute-bound?** You need a **datapath** match: FP8 W8A8 on Hopper/Blackwell for ~2×, FP4 on Blackwell for more. INT4 buys you nothing for compute on Hopper.
-3. **Training in low precision?** FP8 (E4M3 for forward, E5M2 for gradients) on Hopper+ gives ~2× compute; its floating-point range tolerates the dynamics better than INT8. INT4/FP4 training is still frontier.
+3. **Training in low precision?** FP8 (E4M3 for forward, E5M2 for gradients, or E4M3 throughout with fine-grained scales as in DeepSeek-V3) on Hopper+ gives ~2× compute; its floating-point range tolerates the dynamics better than INT8. NVFP4 pretraining has now been shown to match FP8 at 12B parameters over 10T tokens, using random Hadamard transforms, stochastic rounding and a few BF16 layers; treat it as the 2026 frontier rather than the default.
 4. **Seeing no speedup after quantizing?** Walk the checklist: wrong regime (compute-bound expecting a bandwidth win), missing datapath (INT4 on Hopper), or — most commonly — an **unfused dequant** doubling your HBM traffic.
 
 The unifying idea, straight from [Chapter 11](./11_memory_wall_and_bandwidth.md): **bytes are the currency.** Quantization spends fewer of them. Whether that translates to speed depends entirely on whether bytes (bandwidth), space (footprint), or math (compute) was your binding constraint — and the next chapter shows that *sparsity*, the other great "do less work" lever, is governed by an even harsher version of the same hardware reality.
@@ -524,14 +549,57 @@ The unifying idea, straight from [Chapter 11](./11_memory_wall_and_bandwidth.md)
 
 - Quantization delivers **three independent wins**: footprint (always), bandwidth (when memory-bound), and compute throughput (only with a native datapath *and* when compute-bound). Conflating them is the #1 source of disappointing results.
 - **LLM decode is memory-bound**, so its dominant win is **bandwidth**: halving bits ≈ halving decode time, even with no low-precision math units — INT4 weight-only gives ~3–4× decode speedup purely by streaming fewer bytes.
-- **Compute speedups are hardware-gated**: FP8 ≈ 2× on Hopper+, FP4 ≈ 2× more on Blackwell, but INT4 *math* was dropped on Hopper — so INT4 there is bandwidth-only. Always check the datapath table for your GPU.
+- **Compute speedups are hardware-gated**: FP8 ≈ 2× on Hopper+, FP4 ≈ 2× more on Blackwell (3.3× on B300), but INT4 *math* was dropped on Hopper and not restored, so INT4 there is bandwidth-only. A chip can also accept a format without speeding it up (MXFP4 on Trainium3). Always check the datapath rate for your chip.
 - The INT8 GEMM works by **INT8 multiply → INT32 accumulate → single float rescale**; the float cost is $O(MN)$, amortized over an $O(MNK)$ integer reduction, which is why it hits ~2× throughput.
 - **Granularity is a dial**: per-tensor (cheap, outlier-prone) → per-channel weights (free, standard) → per-group (needed for INT4) → microscaling MX (the scale is part of the format, Ch 23).
 - **Activations are the hard half**: outlier channels break naive W8A8, motivating per-token scales and SmoothQuant. Weight-only quant side-steps this entirely.
 - **Memory savings are guaranteed; compute speedups are conditional.** And a quantized kernel is only as fast as its **fusion** — an unfused dequant doubles HBM traffic and erases the gain.
 
+## Check Yourself
+
+<details class="check">
+<summary>A 70B model decodes at batch 1 on a chip with 8 TB/s. Roughly what is the bandwidth-ceiling token rate in BF16, and in INT4 weight-only?</summary>
+<p>Bytes per token are 140 GB in BF16 and 35 GB in INT4. 8 TB/s ÷ 140 GB ≈ 57 tokens/s; 8 TB/s ÷ 35 GB ≈ 229 tokens/s. KV-cache reads and kernel efficiency (60–80%) lower both, but the 4× ratio holds.</p>
+</details>
+
+<details class="check">
+<summary>Why does INT4 weight-only quantization speed up decode on an H100 even though Hopper has no INT4 tensor-core math?</summary>
+<p>Decode at small batch is memory-bound. The speedup comes from streaming a quarter of the bytes; the multiply still runs in FP16 after the weights are unpacked and dequantized in registers, and the tensor cores have spare capacity for it.</p>
+</details>
+
+<details class="check">
+<summary>Your FP8 W8A8 model shows no speedup over BF16 at batch 1. Name the most likely reason, then two more.</summary>
+<p>Most likely: batch-1 decode is memory-bound, and FP8 halves weight bytes but you were already limited by something else, such as an unfused quantize/dequantize that adds memory passes. Other candidates: the chip has no FP8 datapath (A100), or attention and KV-cache reads dominate and were not quantized.</p>
+</details>
+
+<details class="check">
+<summary>Why are per-channel weight scales nearly free in an integer GEMM, while per-group scales are not?</summary>
+<p>A per-channel scale is constant along the whole K reduction for one output, so it can be applied once to the INT32 result. A per-group scale changes every G elements of K, so the kernel must split the reduction, rescale each partial sum and accumulate in higher precision.</p>
+</details>
+
+<details class="check">
+<summary>Trainium3 supports MXFP4. Should you expect a 2× compute speedup over MXFP8 there?</summary>
+<p>No. AWS documents MXFP4 and MXFP8 at the same tensor-engine rate, so MXFP4 halves weight memory and bandwidth but not math time. Supporting a format and running it faster are different hardware claims.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only Inference | Jacob et al. (Google), 2018 | [arxiv.org/abs/1712.05877](https://arxiv.org/abs/1712.05877) | Affine scale/zero-point scheme and INT32 accumulation |
+| LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale | Dettmers et al., 2022 | [arxiv.org/abs/2208.07339](https://arxiv.org/abs/2208.07339) | Emergent activation outlier channels |
+| SmoothQuant | Xiao et al., 2023 | [arxiv.org/abs/2211.10438](https://arxiv.org/abs/2211.10438) | Migrating outliers from activations to weights for W8A8 |
+| GPTQ | Frantar et al., 2023 | [arxiv.org/abs/2210.17323](https://arxiv.org/abs/2210.17323) | Per-group INT4 weight-only quantization |
+| AWQ: Activation-aware Weight Quantization | Lin et al., 2024 | [arxiv.org/abs/2306.00978](https://arxiv.org/abs/2306.00978) | Weight-only INT4 for serving |
+| MARLIN: Mixed-Precision Auto-Regressive Parallel Inference | Frantar et al., 2024 | [arxiv.org/abs/2408.11743](https://arxiv.org/abs/2408.11743) | Fused INT4×FP16 kernel design |
+| FP8 Formats for Deep Learning | Micikevicius et al., 2022 | [arxiv.org/abs/2209.05433](https://arxiv.org/abs/2209.05433) | E4M3/E5M2 definitions and FP8 training |
+| OCP Microscaling Formats (MX) v1.0 | Open Compute Project, 2023 | [opencompute.org/documents/ocp-microscaling-fo…](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf) | 32-element blocks with E8M0 scales |
+| DeepSeek-V3 Technical Report | DeepSeek-AI, 2024 | [arxiv.org/abs/2412.19437](https://arxiv.org/abs/2412.19437) | Fine-grained FP8 training, FP32 promotion every 128 elements |
+| Pretraining Large Language Models with NVFP4 | NVIDIA, 2025 | [arxiv.org/abs/2509.25149](https://arxiv.org/abs/2509.25149) | 4-bit pretraining matching FP8 at 12B / 10T tokens |
+| Trainium3 architecture (Neuron docs) | AWS, 2025–26 | [awsdocs-neuron.readthedocs-hosted.com/en/late…](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/nki/guides/architecture/trainium3_arch.html) | MXFP8/MXFP4 inputs at the same tensor-engine rate |
+
 ---
 
-*Next: [Chapter 26 — Sparsity: The Hardware View](./26_sparsity_hardware_view.md), where we ask the same blunt question of the other great "do less work" lever — and find the hardware answer is far less forgiving.*
+**Next:** [Chapter 26 — Sparsity: The Hardware View](./26_sparsity_hardware_view.md) — We ask the same blunt question of the other great "do less work" lever, and find the hardware answer far less forgiving.
 
 [← Back to Table of Contents](./README.md)
