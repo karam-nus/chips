@@ -109,7 +109,7 @@ The take-away: even a **28 nm ASIC breaks even at ~500 units** when replacing a 
 An ASIC's efficiency advantage comes from removing everything the workload doesn't need:
 
 <div class="diagram">
-<div class="diagram-title">Where Silicon Area Goes: GPU vs ASIC (Matrix Multiply)</div>
+<div class="diagram-title">Where Silicon Area Goes: GPU vs ASIC (rough, illustrative shares)</div>
 <div class="compare">
   <div class="compare-side left">
     <div class="compare-title">GPU (e.g. H100)</div>
@@ -137,7 +137,7 @@ An ASIC's efficiency advantage comes from removing everything the workload doesn
 
 The GPU must be a **general-purpose parallel processor** — it needs warp schedulers, branch support, register files for arbitrary kernel state, L1/L2 caches for irregular access patterns, FP64 for scientific computing, and wide I/O for diverse workloads. An AI ASIC has none of that. It is a matmul engine with just enough control logic to feed it.
 
-This is why the TPU v4 delivers **275 TOPS** at ~170 W (1.6 TOPS/W at BF16) while an H100 SXM delivers ~990 TOPS at 700 W (1.4 TOPS/W) — competitive, but the TPU achieves similar perf/W in far less die area, at lower cost per TOPS when deployed at scale.
+This is why a TPU v4 (275 TFLOP/s bf16 on a 7 nm die) and an H100 (989 TFLOP/s on 4 nm) land within a small factor of each other in performance per watt despite very different designs: the TPU spends almost no area on generality, the GPU spends its area on a newer node and a bigger die. The TPU's decisive advantage is cost: Google pays for wafers, not for NVIDIA's margins.
 
 ---
 
@@ -147,17 +147,20 @@ The 2016–2026 period has produced more AI-specific ASICs than any prior decade
 
 ### Google TPU (Tensor Processing Unit)
 
-The canonical AI ASIC. Introduced internally in 2015–2016, publicly disclosed 2017.
+The canonical AI ASIC. Deployed internally from 2015, disclosed publicly in 2016, and described in detail in 2017.
 
-| Generation | Year | Precision | Peak TOPS | TDP | Key Architecture |
-|---|---|---|---|---|---|
-| TPU v1 | 2016 | INT8 only | 92 | 40 W | 256×256 systolic array; inference only |
-| TPU v2 | 2017 | BF16 + FP32 | 180 | 280 W | Training capable; HBM; 2 cores |
-| TPU v3 | 2018 | BF16 + FP32 | 420 | 450 W | Liquid-cooled; 2 cores; 16 GB HBM |
-| TPU v4 | 2021 | BF16 + INT8 | 275 (BF16) | ~170 W | 4096-chip pods; ICI optical mesh |
-| TPU v5e | 2023 | BF16 + INT8 | 197 (BF16) | ~170 W | High efficiency; volume inference |
-| TPU v5p | 2023 | BF16 + INT8 | 459 (BF16) | ~500 W | Largest pods; training focus |
-| Trillium (v6e) | 2024 | BF16 + INT8 | ~4× v5e | ~100 W | 4× compute/W improvement |
+| Generation | Year | Precision | Peak per chip | Key architecture |
+|---|---|---|---|---|
+| TPU v1 | 2015 | INT8 only | 92 TOPS | 256×256 systolic array; inference only; 75 W TDP |
+| TPU v2 | 2017 | BF16 + FP32 | ~45 TFLOP/s | Training capable; HBM; 2 TensorCores |
+| TPU v3 | 2018 | BF16 + FP32 | ~123 TFLOP/s | Liquid-cooled; 32 GiB HBM |
+| TPU v4 | 2021 | BF16 + INT8 | 275 TFLOP/s | 4,096-chip pods; optical circuit switching |
+| TPU v5e / v5p | 2023 | BF16 + INT8 | 197 / 459 TFLOP/s | Cost-optimised vs largest pods (8,960 chips) |
+| Trillium (v6e) | 2024 | BF16 + INT8 | 918 TFLOP/s | 256×256 MXUs; +67 % perf/W vs v5e |
+| Ironwood (v7) | 2025 | FP8 + BF16 | 4,614 TFLOP/s FP8 | 192 GB HBM3e; 9,216-chip pods |
+| TPU 8t / 8i | 2026 (announced) | FP4 + FP8 + BF16 | 12.6 / 10.1 PFLOP/s FP4 | Separate training and inference chips |
+
+Google does not publish per-chip power for recent TPUs. Per-chip numbers matter: Google's older "180" and "420 TFLOPS" figures for v2/v3 describe four-chip boards.
 
 The systolic array architecture is covered in depth in [Chapter 16](./16_tpus_and_systolic_arrays.md). The key ASIC insight: **the TPU's systolic array has no programmable routing, no speculation, no caches** — data flows deterministically through a grid of MAC units, and that regularity is why the same area delivers far more MACs than a GPU.
 
@@ -165,35 +168,37 @@ The systolic array architecture is covered in depth in [Chapter 16](./16_tpus_an
 
 Amazon's **Inferentia** (2019) and **Inferentia2** (2023) are inference-focused ASICs for AWS cloud:
 
-- **Inferentia2**: 190 TOPS INT8, 384 GB/s HBM, 32 GB capacity, ~300 W, dual-core
-- Each core has two **NeuronCore-v2**: 2× 128×128 matrix multipliers + 16 GB SRAM (fast scratchpad, not cache)
-- Programmed via **AWS Neuron SDK** (compiles PyTorch/JAX models to Neuron IR)
-- Cost: ~$0.08/TOPS-hour vs ~$0.15/TOPS-hour for equivalent GPU capacity
+- **Inferentia2**: two **NeuronCore-v2** per chip, each with a 128×128 tensor (systolic) engine plus vector, scalar and general-purpose SIMD engines and tens of MB of on-chip SRAM; 190 TFLOP/s BF16/FP16 (380 TOPS INT8) per chip, 32 GB HBM at 820 GB/s
+- Programmed via the **AWS Neuron SDK** (compiles PyTorch/JAX models through XLA-style graphs)
 
-**Trainium** (2021) and **Trainium2** (2024) extend the design to training:
-- Trainium2: BF16/FP8, 20× better performance than Trainium on large LLMs, built for 100K-chip "ultra-cluster" deployments
+**Trainium** (2021), **Trainium2** (2024) and **Trainium3** (2025) extend the design to training:
+- **Trainium2**: 667 TFLOP/s BF16 / 1.3 PFLOP/s FP8 dense, 96 GB HBM at 2.9 TB/s, about 4× Trainium1; 64-chip Trn2 UltraServers and the Anthropic-dedicated "Project Rainier" cluster
+- **Trainium3** (TSMC 3 nm): 2.52 PFLOP/s FP8 dense, 144 GB HBM3e at 4.9 TB/s, 16:4 structured sparsity, 144-chip UltraServers
+- **Trainium4** (announced): roughly 6× Trainium3's FP4 throughput and support for **NVLink Fusion**, so Trainium racks can share NVIDIA's scale-up fabric
 
 ### Groq LPU (Language Processing Unit)
 
-Groq's architecture is the most unusual in the landscape. Rather than use HBM, the **Groq LanguageModel Processing Unit (LPU)** packs all weights into **on-chip SRAM**:
+Groq's architecture is the most unusual in the landscape. Rather than use HBM, the **Groq Language Processing Unit (LPU)** keeps all weights in **on-chip SRAM**:
 
-- **GroqChip (TSP — Tensor Streaming Processor)**: 80 MB SRAM (no HBM, no DRAM), 750 MHz, ~188 TOPS BF16, ~75 W
-- **No caches, no dynamic scheduling**: the compiler statically schedules every data movement cycle-by-cycle at compile time
-- Result: **deterministic, extremely low-latency inference** — single-chip latency for a token of a 7B INT8 model is ~0.1 ms; 8-chip system is ~0.05 ms/token
+- **GroqChip (TSP, Tensor Streaming Processor, 14 nm)**: 230 MB of SRAM with ~80 TB/s of on-die bandwidth, no HBM, no DRAM; ~188 TFLOP/s FP16 and 750 TOPS INT8 at 900 MHz
+- **No caches, no dynamic scheduling**: the compiler schedules every data movement cycle by cycle, so latency is fully deterministic
+- **Many chips per model**: 230 MB holds ~230 M INT8 weights, so a 70B model needs ~300 chips at INT8 (Groq's early Llama-2 70B deployment used 576 chips across eight racks). Throughput per user is excellent; capital cost per model is high.
 
-The trade-off: **model size is limited by on-chip SRAM capacity**. An 80 MB chip can fit ~80M INT8 parameters. For a 70B parameter model you need ~875 GroqChips networked together, each holding a shard. In practice, Groq deploys multi-chip clusters for large models.
+> **Why so fast?** Decode is memory-bound, and Groq trades capacity for bandwidth: ~80 TB/s of SRAM per chip, multiplied across hundreds of chips that each hold a slice of the model, so every weight is read from SRAM instead of HBM.
 
-> **Why ultra-low latency?** HBM access latency is ~50–100 ns; SRAM is ~1–5 ns. By eliminating HBM, Groq removes the memory-access stall that limits every weight-fetching operation in transformer decode — the workload is compute-bound rather than memory-bound. At decode with batch=1, this matters enormously. See [Chapter 11](./11_memory_wall_and_bandwidth.md) for the roofline analysis.
+In December 2025 **NVIDIA** signed a ~$20B non-exclusive licensing deal for Groq's inference technology and hired its founder and much of its team; GroqCloud continues independently. NVIDIA's first product from it, the **Groq 3 LPX** rack (256 LPUs, 128 GB of SRAM), is positioned as a decode co-processor beside Vera Rubin NVL72 racks. The SRAM-only idea has gone mainstream.
 
 ### Cerebras Wafer-Scale Engine (WSE)
 
 Cerebras takes the opposite approach to chiplets: **put an entire cluster's worth of compute on one wafer**:
 
 - **WSE-3**: a single silicon wafer (46,225 mm²; H100 GPU die is ~814 mm²), 900,000 cores, 44 GB on-wafer SRAM, 21 PB/s on-wafer memory bandwidth
-- The wafer is diced into "good die" sections and interconnected with **on-silicon fabric** — no PCIe, no NVLink, no off-chip hops between cores
-- On-wafer bandwidth: 21,000 GB/s — ~27× more than 8 × H100 connected by NVLink
+- The wafer is **not diced**: the reticle-sized dies are connected across the scribe lines by on-wafer wiring, so all 900,000 cores sit on one fabric with no PCIe, no NVLink and no off-chip hops between them
+- On-wafer SRAM bandwidth: 21 PB/s, roughly 800× the combined HBM bandwidth of eight H100s (~27 TB/s). Capacity is the catch: 44 GB, so larger models stream weights from external MemoryX servers or span several wafers
 
 Yield management is Cerebras's core manufacturing innovation: a single wafer will have defective dies; the WSE architecture **routes around defects** at power-on, using redundant cores. This is only feasible because TSMC's 5 nm node has high yield, and because Cerebras has per-die redundancy built in.
+
+Cerebras went public on Nasdaq in May 2026 (one of the year's largest IPOs) and in August 2026 announced the **CS-4**, a rack with three higher-clocked WSE-3 wafers; a new WSE-4 is expected with the CS-5 in 2027.
 
 **What it's good at:** extremely large models and sparse/irregular access patterns that benefit from massive on-chip memory bandwidth. Not ideal for models that fit in HBM; very good for models that require cross-layer communication (e.g., mixture-of-experts with all experts on one chip).
 
@@ -201,20 +206,26 @@ Yield management is Cerebras's core manufacturing innovation: a single wafer wil
 
 | Company | Architecture | Key differentiator |
 |---|---|---|
-| Groq | TSP (SRAM-only, static schedule) | Lowest latency decode; fully deterministic |
-| SambaNova | RDU (Reconfigurable Dataflow Unit) | Dataflow-programmable; dynamic sparsity |
-| Tenstorrent | Tensix cores (mesh NoC) | Open ISA; Wormhole/Blackhole chips; developer-friendly |
-| Etched/Sohu | Transformer-hardwired (no programmability) | Every transistor is a transformer op; 0 flexibility |
-| Meta MTIA | Training/inference custom ASIC | In-house; powers Meta's recommendation & LLM systems |
-| Microsoft Maia 100 | Azure-deployed LLM training ASIC | Paired with Cobalt CPU (ARM); Azure OpenAI backend |
+| Groq | TSP (SRAM-only, static schedule) | Lowest-latency decode; technology licensed to NVIDIA (2025) |
+| SambaNova | RDU (Reconfigurable Dataflow Unit) | Dataflow-programmable; SN40L adds a three-tier memory (SRAM, HBM, DDR) |
+| Tenstorrent | Tensix cores (mesh NoC, RISC-V control) | Open software stack; Wormhole and Blackhole chips |
+| Etched (Sohu) | Transformer-specific (claimed) | Bets on transformer permanence; performance figures unverified |
+| Meta MTIA | In-house inference ASIC | MTIA v2 (2024): 354 TOPS INT8 dense, 256 MB SRAM, 90 W; ranking and recommendation |
+| Microsoft Maia | In-house Azure accelerator | Maia 100 (2023); **Maia 200** (Jan 2026): TSMC 3 nm, ~10 PFLOP/s FP4, 216 GB HBM3e at 7 TB/s, 272 MB SRAM, ~750 W |
+| OpenAI (with Broadcom) | Custom inference accelerator | 10 GW deployment plan announced 2025, first racks from 2H 2026 |
 
 ### Etched / Sohu: "Hardwiring the Transformer"
 
 Etched's **Sohu** chip represents the most extreme specialization bet: **hardwire the transformer architecture** — attention, MLP, residual connections — at the transistor level. There is no instruction set; the "program" is the physical circuit. Every mm² of silicon performs exactly one transformer operation, with optimal wire lengths and no fetch/decode overhead.
 
-Claimed peak: ~144 PFLOPS for transformer operations at 700 W. The risk: if attention is replaced (state space models, linear attention, etc.), the chip is worthless. This is the ultimate bet that the transformer architecture is here to stay.
+Etched has claimed very high transformer throughput for an 8-chip Sohu server; those figures had not been independently verified at the time of writing. The risk is plain: if attention is replaced (state space models, linear attention, etc.), a hardwired chip loses its advantage. It is the ultimate bet that the transformer architecture is here to stay.
 
 ---
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>NVIDIA licensed Groq's SRAM-centric design, AWS is adopting NVLink Fusion for Trainium4, and Microsoft and Google publish benchmark comparisons against each other's chips. Is the market converging on "GPU plus specialised decode silicon" in every data centre, and if so, what remains defensible about building your own?</p>
+</div>
 
 ## The Hyperscaler Argument: Why Build Your Own?
 
@@ -225,7 +236,7 @@ Why do Google, AWS, Meta, Microsoft, and others build ASICs instead of buying NV
 <div class="diagram-grid cols-3">
   <div class="diagram-card accent">
     <div class="card-title">Cost at Scale</div>
-    <div class="card-desc">At 100K+ units, ASIC unit cost ($200–500) vs H100 ($30K) means billions in savings per deployment cycle. Google has millions of TPU chips deployed.</div>
+    <div class="card-desc">At 100K+ units, the gap between an ASIC's manufacturing cost (hundreds to a few thousand dollars, plus HBM and packaging) and a merchant GPU's price (tens of thousands) is worth billions per deployment cycle.</div>
   </div>
   <div class="diagram-card green">
     <div class="card-title">Supply Chain Control</div>
@@ -270,17 +281,19 @@ Google has mitigated this by making TPU systolic arrays **programmable at the VL
 
 ## ASIC Examples at a Glance
 
-| ASIC | Maker | Purpose | Precision | TOPS | TDP | Key Feature |
-|---|---|---|---|---|---|---|
-| TPU v4 | Google | Training + Inference | BF16 | 275 | ~170 W | Systolic array; optical ICI mesh |
-| TPU v5p | Google | Large-scale Training | BF16/INT8 | 459 | ~500 W | Largest TPU pod (8960 chips) |
-| Trainium2 | AWS | Training | BF16/FP8 | ~340 | ~500 W | 96 GB HBM3; NeuronLink mesh |
-| Inferentia2 | AWS | Inference | INT8/BF16 | 190 | ~300 W | 384 GB/s; 32 GB HBM; low cost |
-| Groq TSP | Groq | Low-latency Inference | INT8/BF16 | 188 | 75 W | SRAM-only; deterministic latency |
-| WSE-3 | Cerebras | Large-model Training | FP16/BF16 | 125 PFLOPS | 23 kW | One wafer; 44 GB on-chip SRAM |
-| MTIA v2 | Meta | Inference | INT8/BF16 | ~40 | ~25 W | Recommendation + LLM serving |
-| Maia 100 | Microsoft | Training | BF16/FP8 | n/a | ~500 W | Azure OpenAI backend |
-| Sohu | Etched | Transformer Inference | BF16 | 144 PFLOPS | ~700 W | Hardwired transformer; no ISA |
+| ASIC | Maker | Purpose | Peak (dense) | Memory | Key feature |
+|---|---|---|---|---|---|
+| TPU v5p | Google | Training | 459 TFLOP/s BF16 | 95 GB HBM2e | 8,960-chip pods |
+| Ironwood (TPU v7) | Google | Inference + training | 4,614 TFLOP/s FP8 | 192 GB HBM3e | 9,216-chip pods |
+| Trainium2 | AWS | Training | 667 TFLOP/s BF16 | 96 GB HBM | NeuronLink; Project Rainier |
+| Trainium3 | AWS | Training + inference | 2.52 PFLOP/s FP8 | 144 GB HBM3e | 3 nm; 144-chip UltraServers |
+| Inferentia2 | AWS | Inference | 190 TFLOP/s BF16 / 380 TOPS INT8 | 32 GB HBM, 820 GB/s | Low cost per token |
+| Groq TSP | Groq | Low-latency inference | 188 TFLOP/s FP16 / 750 TOPS INT8 | 230 MB SRAM | Deterministic, SRAM-only |
+| WSE-3 | Cerebras | Training + inference | 125 PFLOP/s (vendor, sparse FP16) | 44 GB on-wafer SRAM | One wafer; ~23 kW CS-3 system |
+| MTIA v2 | Meta | Inference | 354 TOPS INT8 | 256 MB SRAM + 128 GB LPDDR5 | 90 W |
+| Maia 200 | Microsoft | Inference | ~10 PFLOP/s FP4 | 216 GB HBM3e, 7 TB/s | 3 nm; ~750 W |
+
+Throughput in each chip's headline format; see the [Accelerator Atlas](./atlas.md) for comparable dense figures.
 
 ---
 
@@ -295,7 +308,7 @@ Google has mitigated this by making TPU systolic arrays **programmable at the VL
   </div>
   <div class="diagram-card green">
     <div class="card-title">Supported Formats Are Fixed</div>
-    <div class="card-desc">An ASIC supports exactly the number formats baked into it. AWS Inferentia2 supports BF16 and INT8. If your model needs FP8 or INT4, check before deploying — you may need re-quantization.</div>
+    <div class="card-desc">An ASIC supports exactly the number formats baked into it. Inferentia2 runs BF16/FP16/FP8 and INT8, Trainium3 adds MXFP8/MXFP4-style formats, older TPUs stop at BF16/INT8. Check before deploying: you may need to re-quantize.</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Memory Architecture Drives Batching</div>
@@ -312,12 +325,46 @@ Google has mitigated this by making TPU systolic arrays **programmable at the VL
 - The spectrum runs **FPGA → structured ASIC → standard-cell ASIC → full-custom ASIC**; standard-cell ASICs are the industry standard, synthesized from RTL using commercial EDA tools.
 - **NRE cost** at 7 nm is $30–80M for a mask set + design; this only makes sense when deploying **thousands to millions of units**, where per-unit savings overwhelm the fixed cost.
 - The **volume break-even** formula: $V^* = N / (F - A)$ — at $50M NRE and $9,800 unit savings, break-even is ~5,100 units; for hyperscalers at 100K+ units, ASIC economics are decisive.
-- The **AI-ASIC boom** includes Google TPU (systolic array), AWS Trainium/Inferentia (NeuronCore), Groq LPU (SRAM-only deterministic latency), Cerebras WSE (wafer-scale), and extreme bets like Etched Sohu (hardwired transformer).
+- The **AI-ASIC boom** includes Google TPU (systolic array, now split into training and inference chips), AWS Trainium/Inferentia (NeuronCore), Microsoft Maia, Meta MTIA, Groq LPU (SRAM-only; licensed to NVIDIA), Cerebras WSE (wafer-scale), and extreme bets like Etched's transformer-specific design.
 - **Hyperscalers build ASICs** for cost control, supply chain independence, workload co-design, and power efficiency — each 2× TOPS/W improvement directly halves the data center electricity bill.
 - The **key risk** is inflexibility: a 2020 transformer ASIC cannot run a 2024 state-space model efficiently. This is why research/training stays on GPUs — only production inference workloads are stable enough to justify silicon.
 
+## Check Yourself
+
+<details class="check">
+<summary>An ASIC costs $120M in NRE and $800 per unit; the GPU it replaces costs $25,000. What is the break-even volume?</summary>
+<p>V* = 120,000,000 / (25,000 − 800) ≈ 4,960 units. Hyperscalers deploying hundreds of thousands of accelerators clear that easily; a startup selling a few hundred does not.</p>
+</details>
+
+<details class="check">
+<summary>How many Groq chips would hold an 8B model in INT8, and why might that still be attractive?</summary>
+<p>8 GB ÷ 230 MB ≈ 35 chips. Each token reads every weight from on-chip SRAM at ~80 TB/s per chip with no HBM stalls, giving very high single-stream token rates, at the price of many chips per model.</p>
+</details>
+
+<details class="check">
+<summary>Why is the Cerebras wafer not cut into dies like a normal wafer?</summary>
+<p>Because the point is to keep all cores on one fabric: Cerebras stitches wiring across the scribe lines and routes around defective cores with spare rows, avoiding the bandwidth and energy cost of going off-chip.</p>
+</details>
+
+<details class="check">
+<summary>What is the main technical risk of a hardwired transformer ASIC?</summary>
+<p>Model architectures change faster than chips: new attention variants, state-space layers, MoE routing or new number formats may not map onto fixed datapaths, stranding the hardware before it has paid back its NRE.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| In-Datacenter Performance Analysis of a Tensor Processing Unit | N. Jouppi et al., ISCA 2017 | [arxiv.org/abs/1704.04760](https://arxiv.org/abs/1704.04760) | TPUv1 design and ASIC efficiency argument |
+| Think Fast: A Tensor Streaming Processor (TSP) for Accelerating Deep Learning Workloads | D. Abts et al., ISCA 2020 | [doi.org/10.1109/ISCA45697.2020.00023](https://doi.org/10.1109/ISCA45697.2020.00023) | Groq TSP: 230 MB SRAM, static scheduling |
+| AWS Neuron documentation: Inferentia2 and Trainium architecture | AWS | [awsdocs-neuron.readthedocs-hosted.com/en/late…](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/arch/index.html) | NeuronCore engines, HBM, throughput |
+| Announcing Amazon EC2 Trn3 UltraServers | AWS, Dec 2025 | [aws.amazon.com/about-aws/whats-new/2025/12/am…](https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-ec2-trn3-ultraservers) | Trainium3 specs; Trainium4 with NVLink Fusion |
+| Maia 200: The AI accelerator built for inference | Microsoft, Jan 2026 | [blogs.microsoft.com/blog/2026/01/26/maia-200-…](https://blogs.microsoft.com/blog/2026/01/26/maia-200-the-ai-accelerator-built-for-inference/) | Maia 200 specs |
+| Our next-generation Meta Training and Inference Accelerator (MTIA v2) | Meta, 2024 | [ai.meta.com/blog/next-generation-meta-trainin…](https://ai.meta.com/blog/next-generation-meta-training-inference-accelerator-AI-MTIA/) | MTIA v2 throughput, SRAM, power |
+| Nvidia confirms $20 billion Groq deal | Tom's Hardware, 2025 | [tomshardware.com/tech-industry/semiconductors…](https://www.tomshardware.com/tech-industry/semiconductors/nvidia-confirms-20-billion-groq-deal-to-bolster-ai-inference-dominance) | NVIDIA–Groq licensing deal and Groq 3 LPX |
+
 ---
 
-*Next: [Chapter 22 — SoCs](./22_socs.md), where we see how CPU, GPU, NPU, ISP, and all the chips we've studied are integrated onto a single die — and why that integration is what makes mobile AI and Apple's M-series possible.*
+**Next:** [Chapter 22 — SoCs](./22_socs.md) — We see how CPU, GPU, NPU, ISP, and all the chips we've studied are integrated onto a single die — and why that integration is what makes mobile AI and Apple's M-series possible.
 
 [← Back to Table of Contents](./README.md)
