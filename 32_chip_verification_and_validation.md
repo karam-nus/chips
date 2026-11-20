@@ -29,7 +29,16 @@ The cost of fixing a bug scales catastrophically with when it is found:
 | Post-silicon (respin) | **$10M–$100M+** | **6–18 months** |
 | In-field (recall) | **$100M–$1B+** | Customer relationships, brand |
 
-A **respin** is a complete new tapeout: redo the mask set ($15–30M at N3), wait 12 weeks for wafers, redo post-silicon validation. For a large AI accelerator, a respin can cost $30–100M and erase an entire product generation of competitive advantage. This asymmetry is why companies spend 60% of their engineering budget on verification for a chip that their hardware architects could RTL-code in 30%.
+A **respin** is a complete new tapeout: redo the mask set (tens of millions of dollars at N3), wait 3–4 months for wafers, redo post-silicon validation. For a large AI accelerator, a respin can cost $30–100M and erase an entire product generation of competitive advantage. This asymmetry is why companies spend 60% of their engineering budget on verification for a chip that their hardware architects could RTL-code in 30%.
+
+And it is getting harder, not easier. The 2024 Wilson Research Group study, run with Siemens EDA across 597 projects, found that only **14%** of IC/ASIC projects achieved first-silicon success, the lowest figure in more than twenty years of tracking. Most respins were for logic or functional flaws, the bugs this chapter's tools exist to catch.
+
+<div class="stats">
+  <div class="stat"><div class="stat-num"><em>14</em>%</div><div class="stat-label">of 2024 ASIC projects worked on first silicon</div></div>
+  <div class="stat"><div class="stat-num">~<em>60</em>%</div><div class="stat-label">of chip engineering effort spent on verification</div></div>
+  <div class="stat"><div class="stat-num"><em>$475</em>M</div><div class="stat-label">Intel's 1994 charge for five missing table entries</div></div>
+  <div class="stat"><div class="stat-num">10<em>⁶</em>–10<em>⁸</em>×</div><div class="stat-label">slower: full-SoC simulation vs real silicon</div></div>
+</div>
 
 ### The Pentium FDIV Bug — A Detailed Lesson
 
@@ -281,7 +290,7 @@ Key elements of this testbench:
 - **Constrained-random**: `test_random(10_000)` applies 10,000 random operations with weighted probabilities, discovering corner cases no human would enumerate.
 - **Assertion-friendly**: the flag checks inside `always @(posedge clk)` are inline checkers — in a real UVM environment these move to the scoreboard.
 
-Simulation speed for this design: ~10–50 million simulation cycles per second on a modern server. A billion-gate SoC runs at **10–100 Hz** in simulation — which is why emulation exists (see below).
+Simulation speed for this design: ~10–50 million simulation cycles per second on a modern server. A billion-gate SoC runs at roughly **10–1,000 Hz** in simulation — which is why emulation exists (see below).
 
 ---
 
@@ -703,23 +712,23 @@ Simulation is thorough but **slow**. A billion-gate SoC simulates at **10–1,00
 | Platform | Typical "clock" speed | Use case | Example |
 |---|---|---|---|
 | Software simulation (VCS/Xcelium) | 10 Hz – 10 kHz | Block-level functional debug | UVM testbench on a MAC unit |
-| Hardware-compiled emulator | 1–10 MHz | SoC-level; OS boot; software stack | Palladium Z2, Veloce Strato |
-| FPGA prototype | 10–200 MHz | Pre-silicon software validation; near-real-time | Xilinx HAPS-100, custom FPGA board |
+| Hardware emulator | 1–10 MHz | SoC-level; OS boot; software stack | Cadence Palladium Z3, Siemens Veloce Strato, Synopsys ZeBu |
+| FPGA prototype | 10–200 MHz | Pre-silicon software validation; near-real-time | Synopsys HAPS, Cadence Protium, custom AMD VP1902 boards |
 | Post-silicon | 500 MHz – 3 GHz | Full speed; final validation | First silicon |
 
 At 1–10 MHz, an emulator can boot Linux in **seconds** on a chip design that doesn't exist in silicon yet. That lets the software team start driver development, OS porting, and application testing **12–18 months before first silicon** — a competitive advantage that compresses the overall product timeline.
 
 ### How Emulators Work
 
-A hardware emulator (Cadence Palladium, Synopsys Zebu, Siemens Veloce) is essentially a **room-sized FPGA cluster**:
+A hardware emulator is a **room-sized machine built to run RTL**, and the three vendors build it three ways: Cadence Palladium uses arrays of custom Boolean processors, Siemens Veloce uses custom emulation chips, and Synopsys ZeBu uses large FPGAs. The workflow is similar for all three:
 
-- The RTL is compiled to run on a massively parallel array of FPGAs (sometimes hundreds) interconnected with custom high-bandwidth links.
+- The RTL is compiled onto a massively parallel array of emulation processors, custom chips or FPGAs (sometimes hundreds) interconnected with custom high-bandwidth links.
 - The compilation step (partitioning the design across FPGAs, mapping, routing) takes **days** and produces a **bitstream** loaded into the emulator.
 - Once loaded, the design runs at 1–10 MHz, with full RTL visibility for debugging (read any signal at any cycle — no probes needed).
 
-Palladium Z2 (Cadence, 2018): up to 9 billion logic gates, 1–10 MHz equivalent clock, up to 2 Tb/s of internal bandwidth. A single system costs $5–20M; Google, Apple, NVIDIA each operate multiple.
+Cadence's Palladium Z3 (2024) scales to roughly 48 billion gates, enough to hold a full reticle-sized AI accelerator, and runs at around 1–10 MHz equivalent clock. Large systems cost millions of dollars, and the biggest chip companies operate fleets of them.
 
-**FPGA prototyping** is the faster but less capacity-rich alternative: buy a Xilinx Virtex UltraScale+ or VU19P board ($30–200K), partition your design manually across 1–8 FPGAs, and run at 50–200 MHz. FPGA prototyping requires more manual work than a commercial emulator but offers higher clock speed and is more accessible for teams that can't afford Palladium.
+**FPGA prototyping** is the faster but less capacity-rich alternative: buy a board built on the largest prototyping FPGAs (AMD's Virtex UltraScale+ VU19P, or its successor the Versal Premium VP1902) for tens to hundreds of thousands of dollars, partition your design manually across 1–8 FPGAs, and run at 50–200 MHz. FPGA prototyping requires more manual work than a commercial emulator but offers higher clock speed and is more accessible for teams that can't afford Palladium.
 
 ---
 
@@ -855,7 +864,7 @@ Design bugs found in post-silicon that require a respin are the nightmare scenar
 
 Why is verification so expensive for AI accelerators specifically?
 
-1. **Numerical correctness is hard to verify**. An FP8 multiplier must produce IEEE-754-compatible results (with specific rounding modes) across the entire input space. Verifying this exhaustively requires formal proof or very dense random sampling. One wrong bit in a multiply-accumulate tree silently poisons training loss.
+1. **Numerical correctness is hard to verify**. An FP8 multiplier must match its format specification exactly (OCP OFP8 or MX, since IEEE 754 does not define 8-bit formats; IEEE P3109 is drafting one), including rounding, saturation and NaN behaviour, across the entire input space. The good news is that 8-bit operands are small enough to verify exhaustively: 2⁸ × 2⁸ = 65,536 input pairs per multiply. Verifying this exhaustively requires formal proof or very dense random sampling. One wrong bit in a multiply-accumulate tree silently poisons training loss.
 
 2. **The state space is enormous**. An AI accelerator has a large register file, complex DMA engines, multi-level SRAM hierarchies, and multiple clock domains. The number of possible states is astronomical.
 
@@ -864,6 +873,24 @@ Why is verification so expensive for AI accelerators specifically?
 4. **Training vs. inference correctness diverge**. A bit flip in inference produces a wrong token. A bit flip in training gradient accumulation may perturb the loss landscape in ways that only manifest after 10,000 training steps. This makes training correctness extraordinarily difficult to verify end-to-end before tapeout.
 
 ---
+
+### A Short Hall of Fame (and Shame)
+
+Every class of bug in this chapter has a famous escapee. Each one reached customers despite large, competent verification teams, and each one taught the industry a new check.
+
+| Year | Product | What escaped | What it cost | The lesson |
+|---|---|---|---|---|
+| 1994 | Intel Pentium | Five missing entries in the FDIV lookup table | $475M charge | Exhaustive or formal checks on arithmetic units |
+| 2007 | AMD Phenom / Barcelona | TLB erratum that could hang the system | BIOS workaround costing ~10–20% performance, then a new stepping | Coherence and corner-case stress at scale |
+| 2011 | Intel 6-series chipset | A SATA-port transistor that degraded over time | ~$700M repair and replacement | Reliability and aging are part of verification |
+| 2018 | Most out-of-order CPUs | Spectre and Meltdown: correct results, leaked secrets through speculation | Years of mitigations and performance loss | Functional correctness is not security |
+| 2024 | Intel 13th/14th-gen Core | Microcode requested too-high voltage, causing permanent Vmin shift | Microcode fixes and extended warranties | Firmware and power management are part of the design |
+| 2024 | NVIDIA Blackwell | A design issue that lowered production yield | A GPU mask change and roughly a quarter of delay | Even the leader respins; schedules absorb it |
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Coverage closure asks "have we seen every behaviour we care about?" Your model's evaluation suite asks the same question about inputs. What is the equivalent of a functional cover bin for your model, and which one have you never hit?</p>
+</div>
 
 ## Why This Matters for Model Optimization / ML Engineers
 
@@ -881,17 +908,58 @@ Verification is not just a chip designer's concern — it has direct consequence
 
 ## Key Takeaways
 
-- **Verification is 60–70% of chip engineering effort** because the cost of a post-silicon bug (respin, recall) is 10,000–1,000,000× the cost of a pre-silicon fix. The Pentium FDIV bug at $475M is the canonical illustration.
+- **Only 14% of ASIC projects worked on first silicon in 2024**, and **verification is 60–70% of chip engineering effort**, because the cost of a post-silicon bug (respin, recall) is 10,000–1,000,000× the cost of a pre-silicon fix. The Pentium FDIV bug at $475M is the canonical illustration.
 - **Functional simulation** with a self-checking scoreboard and constrained-random stimulus catches orders of magnitude more bugs than directed testing alone. Coverage metrics (code + functional covergroups) answer "are we done?"
 - **SVA assertions** embedded in RTL or bound externally are the highest-ROI verification investment: they fire at the point of failure, document design intent, and remain active throughout the entire verification campaign.
 - **UVM** is the industry-standard methodology for structured, reusable verification environments; its driver/monitor/sequencer/scoreboard architecture scales from block-level to full-chip.
 - **Formal verification** proves properties exhaustively over all inputs and states — not just the ones simulation chose. It is transformatively powerful for protocol checkers, reset correctness, and equivalence checking (RTL vs. netlist).
-- **Emulation** (Palladium-class: 1–10 MHz) bridges the gap between simulation (10 Hz–10 kHz) and silicon (1+ GHz), enabling OS boot and software stack development 12–18 months before first silicon.
+- **Emulation** (Palladium, Veloce, ZeBu: 1–10 MHz) bridges the gap between simulation (10 Hz–10 kHz) and silicon (1+ GHz), enabling OS boot and software stack development 12–18 months before first silicon.
 - **DFT** (scan chains, MBIST, LBIST, JTAG) serves manufacturing test: proving each fabricated die has no physical defects, distinct from functional verification of the design.
 - For ML engineers: the reliability of your training cluster, the trust timeline of new hardware generations, and the long horizon of hardware-aware optimization all trace back directly to the verification discipline described in this chapter.
 
+## Check Yourself
+
+<details class="check">
+<summary>A full-SoC simulation runs at 100 Hz. How long would it take to simulate a 2-second boot at 1.5 GHz, and on an emulator at 2 MHz?</summary>
+<p>3 × 10⁹ cycles. At 100 Hz: 3 × 10⁷ s, about a year. At 2 MHz: 1,500 s, about 25 minutes.</p>
+</details>
+
+<details class="check">
+<summary>Why can't 100% line coverage tell you the design is correct?</summary>
+<p>Line coverage only says each line executed at least once. Bugs live in combinations: a particular state together with particular inputs and timing. Functional coverage bins and cross-coverage target those combinations.</p>
+</details>
+
+<details class="check">
+<summary>Why can formal verification prove an FP8 multiplier correct, but not a whole GPU?</summary>
+<p>The multiplier has 2¹⁶ input pairs and almost no state, so every case can be checked. A GPU has billions of state bits; the reachable state space is far beyond any exhaustive method, so formal is applied to small properties and blocks.</p>
+</details>
+
+<details class="check">
+<summary>What does DFT check that functional verification does not?</summary>
+<p>Functional verification checks the design; DFT checks each manufactured die for physical defects (stuck-at, transition, bridging faults) using scan chains and BIST. A perfect design can still be fabricated with a broken wire.</p>
+</details>
+
+<details class="check">
+<summary>Give one example of a shipped bug that was not a logic error, and the verification lesson it taught.</summary>
+<p>Spectre (correct results, leaked secrets: functional correctness is not security), the 2011 SATA transistor (reliability and aging), or Intel's 2024 Vmin shift (firmware and voltage control are part of the design).</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Pentium FDIV flaw FAQ | Intel / T. Nicely, 1994 | [trnicely.net/pentbug/pentbug.html](https://www.trnicely.net/pentbug/pentbug.html) | The FDIV discovery and analysis |
+| 2024 IC/ASIC Functional Verification Trend Report | Wilson Research Group / Siemens EDA, 2024 | [resources.sw.siemens.com/en-US/white-paper-20…](https://resources.sw.siemens.com/en-US/white-paper-2024-wilson-research-group-ic-asic-functional-verification-trend-report/) | 14% first-silicon success; verification effort |
+| IEEE 1800-2023 SystemVerilog | IEEE, 2023 | [standards.ieee.org/ieee/1800/7743](https://standards.ieee.org/ieee/1800/7743/) | SVA and covergroups |
+| IEEE 1800.2 Universal Verification Methodology | IEEE / Accellera | [accellera.org/downloads/standards/uvm](https://www.accellera.org/downloads/standards/uvm) | UVM class library |
+| IEEE 1149.1 Boundary Scan (JTAG) | IEEE | [standards.ieee.org/ieee/1149.1/4484](https://standards.ieee.org/ieee/1149.1/4484/) | Test access port |
+| Spectre Attacks: Exploiting Speculative Execution | Kocher et al., 2019 | [arxiv.org/abs/1801.01203](https://arxiv.org/abs/1801.01203) | Correct-but-insecure hardware |
+| Silent Data Corruptions at Scale | Dixit et al. (Meta), 2021 | [arxiv.org/abs/2102.11245](https://arxiv.org/abs/2102.11245) | Defects that escape test and corrupt results |
+| OCP 8-bit Floating Point Specification (OFP8) | Open Compute Project, 2023 | [opencompute.org/documents/ocp-8-bit-floating-…](https://www.opencompute.org/documents/ocp-8-bit-floating-point-specification-ofp8-revision-1-0-2023-12-01-pdf-1) | The spec an FP8 unit is verified against |
+| SymbiYosys | YosysHQ | [symbiyosys.readthedocs.io](https://symbiyosys.readthedocs.io/) | Open-source formal flow |
+
 ---
 
-*Next: [Chapter 33 — Design-Paradigm Wars](./33_design_paradigm_wars.md), where NVIDIA, AMD, Intel, and ARM's competing architectural philosophies collide — and how the hardware lead changed hands.*
+**Next:** [Chapter 33 — Design-Paradigm Wars](./33_design_paradigm_wars.md) — NVIDIA, AMD, Intel, Google and the Arm camp's competing architectural philosophies collide, and we see how the lead has changed hands.
 
 [← Back to Table of Contents](./README.md)
