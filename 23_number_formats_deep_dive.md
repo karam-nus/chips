@@ -46,7 +46,7 @@ Recall the value formula and two key quantities from Chapter 3, which we will co
 $$V = (-1)^S \times 1.M \times 2^{\,E - \text{bias}}, \qquad \text{bias} = 2^{k-1}-1 \ \text{for a } k\text{-bit exponent}$$
 
 - **Max normal** $= (2 - 2^{-m}) \times 2^{\,e_{\max}}$ — set by the *exponent* (range).
-- **Relative precision** $\approx 2^{-(m+1)}$ — the gap between 1.0 and the next representable value (one ULP at 1.0), set by the *mantissa*.
+- **Relative precision** $= 2^{-(m+1)}$, the *unit roundoff*: the largest relative error from rounding a value to the format, i.e. half the gap between 1.0 and the next representable value (that gap, one ULP at 1.0, is $2^{-m}$). It is set by the *mantissa*.
 
 Keep both formulas in view; the rest of the chapter is just plugging numbers in.
 
@@ -74,7 +74,7 @@ The gold standard of scientific computing, and almost never used in ML.
 
 - **Max normal:** $\approx 1.8 \times 10^{308}$  **Min normal:** $\approx 2.2 \times 10^{-308}$
 - **Relative precision:** $2^{-53} \approx 1.1 \times 10^{-16}$ (~15–16 decimal digits)
-- **ML use:** essentially none in the hot path. Occasionally for reference/"golden" results, numerically sensitive reductions, or scientific HPC. Tensor cores do not accelerate FP64 for ML; on a GPU it is the *slowest* path. Mentioned here mainly as the upper anchor of the range/precision scale.
+- **ML use:** essentially none in the hot path. Occasionally for reference/"golden" results, numerically sensitive reductions, or scientific HPC. A100 and H100 have FP64 tensor cores for HPC, but it is still the slowest path on any GPU, and Blackwell Ultra and Rubin cut FP64 throughput sharply in favour of low-precision formats. Mentioned here mainly as the upper anchor of the range/precision scale.
 
 ### FP32 — Single Precision (1-8-23, 4 bytes)
 
@@ -161,7 +161,7 @@ The format that became the training default. The trick is almost embarrassingly 
 
 ### FP8 — The Two Eight-Bit Floats (1 byte)
 
-At 8 bits there is no single right answer, so the OCP (Open Compute Project) FP8 standard defines **two** formats, and hardware (NVIDIA Hopper/Blackwell) supports both. The choice is the range-vs-precision trade-off made naked.
+At 8 bits there is no single right answer, so the OCP (Open Compute Project) FP8 standard defines **two** formats, and hardware supports both: NVIDIA Hopper and Blackwell, AMD MI355X, Intel Gaudi 3, Google Ironwood and AWS Trainium. (AMD's MI300 generation used the closely related "FNUZ" variants, with bias 8/16 and no negative zero; MI355X moved to the OCP encodings, so FP8 checkpoints are not always bit-compatible across vendors.) The choice is the range-vs-precision trade-off made naked.
 
 #### E4M3 (1-4-3) — the precision-leaning FP8
 
@@ -178,8 +178,8 @@ At 8 bits there is no single right answer, so the OCP (Open Compute Project) FP8
 | Mantissa | 3 | $1.M$ |
 
 - **Max normal:** $\mathbf{448}$  **Min normal:** $2^{-6} \approx 0.0156$  **Min subnormal:** $2^{-9} \approx 0.00195$
-- **Relative precision:** $2^{-4} \approx 6.25 \times 10^{-2}$ (only ~16 distinct values per binade)
-- **Note:** the OCP `e4m3fn` variant ("finite") reclaims the would-be-infinity encodings to extend max to 448 and has only one NaN, no ∞. This is `torch.float8_e4m3fn`.
+- **Relative precision:** $2^{-4} \approx 6.25 \times 10^{-2}$ (only 8 distinct values per binade)
+- **Note:** the OCP `e4m3fn` variant ("finite") gives up infinities and uses only the all-ones pattern (S.1111.111) for NaN, which frees the other exponent-15 codes and extends the max to 448. This is `torch.float8_e4m3fn`.
 - **ML use:** **forward pass** — weights and activations, where values are reasonably bounded and you want as much precision as 8 bits allows.
 
 #### E5M2 (1-5-2) — the range-leaning FP8
@@ -197,7 +197,7 @@ At 8 bits there is no single right answer, so the OCP (Open Compute Project) FP8
 | Mantissa | 2 | $1.M$ |
 
 - **Max normal:** $\mathbf{57344}$  **Min normal:** $\approx 6.1 \times 10^{-5}$  **Min subnormal:** $\approx 1.5 \times 10^{-5}$
-- **Relative precision:** $2^{-3} = 0.125$ (only ~8 distinct values per binade)
+- **Relative precision:** $2^{-3} = 0.125$ (only 4 distinct values per binade)
 - **ML use:** **gradients in the backward pass**, where dynamic range matters more than precision (same reasoning as BF16 vs FP16, now at 8 bits). `torch.float8_e5m2`.
 
 <div class="diagram">
@@ -237,7 +237,7 @@ E3M2:  S EEE MM   (1-3-2)        E2M3:  S EE MMM   (1-2-3)
 | Format | Layout | Max normal | Min normal | Rel. precision | Leans |
 |--------|:------:|:----------:|:----------:|:--------------:|-------|
 | FP6 E3M2 | 1-3-2 | 28 | $2^{-2}=0.25$ | $2^{-3}=0.125$ | range |
-| FP6 E2M3 | 1-2-3 | 7.5 | $2^{-1}=0.5$ | $2^{-4}=0.0625$ | precision |
+| FP6 E2M3 | 1-2-3 | 7.5 | $2^{0}=1.0$ | $2^{-4}=0.0625$ | precision |
 
 - **ML use:** an accuracy/size compromise between FP8 and FP4 in microscaling formats. FP6 is awkward for memory (6 bits doesn't pack into bytes cleanly) but offers a meaningfully better accuracy/footprint point than FP4 for sensitive layers.
 
@@ -287,9 +287,22 @@ Ternary:                   {-1, 0, +1}      ~1.58 bits of information (log2 3)
 Key facts that drive ML decisions:
 
 - **Uniform step.** Unlike floats, integers have a *constant* gap between values. This is great for values clustered around zero with a known max (post-activation, weights), and bad for values spanning many orders of magnitude (raw gradients). That is precisely why **weights** quantize beautifully to INT4 but **activations** (with outliers) are harder.
-- **The asymmetry trap.** INT8 spans −128…127: the magnitude of the most-negative value exceeds the most-positive. Naive *symmetric* quantization wastes the −128 slot or clips it; some schemes use −127…127 for an exact symmetric zero (Chapter 3, Chapter 25).
+- **The asymmetry trap.** INT8 spans −128…127: the magnitude of the most-negative value exceeds the most-positive. Naive *symmetric* quantization wastes the −128 slot or clips it; most symmetric schemes use −127…127 so that ±max map to the same magnitude (Chapter 3, Chapter 25).
 - **Ternary {−1, 0, +1}** carries $\log_2 3 \approx 1.58$ bits. The middle value 0 is special: it lets a single representation express *both* sign and structured sparsity, which is why BitNet-style "1.58-bit" LLMs are an active frontier. Multiplies degenerate to add/subtract/skip — almost no multiplier needed at all (Chapter 24).
 - **Binary (INT1)** turns the dot product into **XNOR + popcount**: multiply becomes a 1-gate XNOR, accumulate becomes counting set bits. Astonishingly cheap in silicon, but the accuracy cost is severe for general models.
+
+---
+
+## Try It: Every Format, Bit by Bit
+
+Type a value, pick a format, flip bits. The explorer encodes with round-to-nearest-even, saturates the formats that have no infinity (E4M3, FP6, FP4), and reports the decoded value, the error and the format's range.
+
+<div class="lab" data-lab="bits"><noscript><div class="lab-noscript">The bit explorer needs JavaScript.</div></noscript></div>
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>E4M3 and E5M2 spend the same 8 bits differently, and training recipes use one forward and the other backward. With per-block scales (MXFP8) absorbing most of the range problem, is there still a reason to keep E5M2 for gradients, or does the scale make E4M3 sufficient everywhere?</p>
+</div>
 
 ---
 
@@ -297,7 +310,7 @@ Key facts that drive ML decisions:
 
 The whole zoo on one page. (Subnormal/precision values are for the bare formats; block-scaled formats add a shared scale — see below.)
 
-| Format | Bytes | Layout (S-E-M) | Exp bias | Max normal | Min normal | Rel. precision (ULP@1) | Typical ML use |
+| Format | Bytes | Layout (S-E-M) | Exp bias | Max normal | Min normal | Unit roundoff (½ ULP at 1) | Typical ML use |
 |--------|:-----:|:--------------:|:--------:|:----------:|:----------:|:----------------------:|----------------|
 | FP64 | 8 | 1-11-52 | 1023 | $1.8\times10^{308}$ | $2.2\times10^{-308}$ | $1.1\times10^{-16}$ | reference / HPC |
 | FP32 | 4 | 1-8-23 | 127 | $3.4\times10^{38}$ | $1.2\times10^{-38}$ | $6.0\times10^{-8}$ | master weights, accumulation |
@@ -307,8 +320,8 @@ The whole zoo on one page. (Subnormal/precision values are for the bare formats;
 | FP8 E4M3 | 1 | 1-4-3 | 7 | $448$ | $1.6\times10^{-2}$ | $6.25\times10^{-2}$ | FP8 forward pass |
 | FP8 E5M2 | 1 | 1-5-2 | 15 | $57344$ | $6.1\times10^{-5}$ | $0.125$ | FP8 backward (gradients) |
 | FP6 E3M2 | 0.75 | 1-3-2 | 3 | $28$ | $0.25$ | $0.125$ | MXFP6 (range) |
-| FP6 E2M3 | 0.75 | 1-2-3 | 1 | $7.5$ | $0.5$ | $0.0625$ | MXFP6 (precision) |
-| FP4 E2M1 | 0.5 | 1-2-1 | 1 | $6.0$ | $1.0$ | $0.5$ | block-scaled only (MXFP4/NVFP4) |
+| FP6 E2M3 | 0.75 | 1-2-3 | 1 | $7.5$ | $1.0$ | $0.0625$ | MXFP6 (precision) |
+| FP4 E2M1 | 0.5 | 1-2-1 | 1 | $6.0$ | $1.0$ | $0.25$ | block-scaled only (MXFP4/NVFP4) |
 | INT8 | 1 | signed int | — | $127\times s$ | $s$ | $s$ (uniform) | quantized inference |
 | INT4 | 0.5 | signed int | — | $7\times s$ | $s$ | $s$ (uniform) | weight-only LLM quant |
 | INT2 | 0.25 | signed int | — | $1\times s$ | $s$ | $s$ (uniform) | research |
@@ -365,7 +378,7 @@ The **Open Compute Project (OCP) Microscaling (MX)** spec standardized this in 2
 | MXFP4 | FP4 (E2M1) | 4 | 8 bits / 32 elems | $4 + 8/32 = \mathbf{4.25}$ |
 | MXINT8 | INT8 | 8 | 8 bits / 32 elems | $8.25$ |
 
-> The memory math you must remember: **MXFP4 ≈ 4.25 bits/element.** Sixteen 4-bit elements + one 8-bit scale per 32 elements = $(32 \times 4 + 8)/32 = 136/32 = 4.25$ bits/element. That 0.25-bit "tax" buys back the dynamic range that makes 4-bit floats usable. Compare to FP16's 16 bits/element: MXFP4 is a **~3.76× memory reduction**.
+> The memory math you must remember: **MXFP4 ≈ 4.25 bits/element.** Thirty-two 4-bit elements plus one 8-bit scale = $(32 \times 4 + 8)/32 = 136/32 = 4.25$ bits/element. That 0.25-bit "tax" buys back the dynamic range that makes 4-bit floats usable. Compare to FP16's 16 bits/element: MXFP4 is a **~3.76× memory reduction**.
 
 <div class="diagram">
 <div class="diagram-title">MXFP4 Block Layout (one block = 32 elements + 1 scale)</div>
@@ -496,12 +509,13 @@ def quantize_fp4(vals: torch.Tensor) -> torch.Tensor:
     return sign * FP4_LEVELS[idx]
 
 def mxfp4_block(block: torch.Tensor):
-    """One MX block: pick a power-of-two (E8M0) scale, quantize 32 elems to FP4."""
+    """One MX block: OCP E8M0 scale + 32 FP4 E2M1 elements."""
     amax = block.abs().max()
-    # E8M0 scale = power of two so that amax maps near FP4's max (6.0)
-    exp = math.floor(math.log2(amax / 6.0)) if amax > 0 else 0
-    scale = 2.0 ** exp                                   # the shared exponent
-    codes = quantize_fp4(block / scale)                  # FP4 codes, shape [32]
+    # OCP MX rule: shared exponent = floor(log2(amax)) - emax_elem, and emax_elem = 2 for E2M1,
+    # so amax / scale lands in [4, 8); anything above FP4's max (6.0) saturates.
+    exp = math.floor(math.log2(amax)) - 2 if amax > 0 else 0
+    scale = 2.0 ** exp                                    # the shared exponent
+    codes = quantize_fp4(torch.clamp(block / scale, -6.0, 6.0))
     return codes, scale
 
 torch.manual_seed(0)
@@ -509,13 +523,13 @@ block = torch.randn(32) * 0.1
 block[7] = 5.0                                            # inject an outlier
 codes, scale = mxfp4_block(block)
 recon = codes * scale
-print("E8M0 scale (2^k):", scale)
+print("E8M0 scale (2^k):", scale)                        # 1.0 = 2^(floor(log2 5) - 2)
 print("bits/element    :", (32*4 + 8) / 32, "  # 4.25, the MXFP4 tax")
-print("outlier recon   :", float(recon[7]), "vs 5.0 (clamped: FP4 max 6.0 × scale 0.5)")
-print("mean small err  :", float((block[:7] - recon[:7]).abs().mean()))
+print("outlier recon   :", float(recon[7]), "vs 5.0")    # 4.0: halfway between 4 and 6, ties to 4
+print("small values -> zero:", int((recon[:7] == 0).sum()), "of 7")
 ```
 
-Because the scale is *per block*, the outlier no longer forces every small neighbor to round to zero. (With this power-of-two E8M0 scale of 0.5, the outlier itself even clamps a bit — $5.0/0.5 = 10$ exceeds FP4's max of 6.0, so it reconstructs to $6.0 \times 0.5 = 3.0$; a mantissa-bearing scale would land closer.) And with FP4's mere 8 magnitudes the small values are still coarsely bucketed. NVFP4's smaller 16-element blocks *and* its FP8 (mantissa-bearing) block scale exist precisely to tighten both problems.
+With the OCP rule the scale is $2^{\lfloor \log_2 5 \rfloor - 2} = 1$, so the outlier reconstructs to 4.0 (halfway between FP4's levels 4 and 6, rounded to the even code), and its ±0.1 neighbours fall below FP4's smallest non-zero step of 0.5 and round to **zero**. Block scaling does not rescue the block that holds the outlier; it confines the damage to that block, so the other blocks in the tensor each get a scale matched to their own values. NVFP4's smaller 16-element blocks (half as many neighbours share an outlier's scale) and its FP8 block scale (which can land between powers of two) exist precisely to tighten both problems. Try both schemes on a tensor with outliers in the [quantization lab](./25_quantization_hardware_view.md).
 
 ---
 
@@ -546,7 +560,7 @@ Because the scale is *per block*, the outlier no longer forces every small neigh
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">The frontier is FP4/microscaling</div>
-    <div class="card-desc">FP8 is now mainstream (Hopper+); FP4 with microscaling is the bleeding edge (Blackwell). Knowing the formats tells you what next-gen hardware will accelerate — and what to quantize toward.</div>
+    <div class="card-desc">FP8 is mainstream (Hopper onward, MI300, Gaudi 3, Ironwood); FP4 with microscaling ships in Blackwell, Blackwell Ultra, Rubin, MI355X/MI455X and TPU 8, and NVFP4 has been used to pre-train multi-billion-parameter models. Knowing the formats tells you what each chip accelerates.</div>
   </div>
 </div>
 </div>
@@ -564,8 +578,47 @@ This chapter is the foundation for the rest of Part V. **Chapter 25 (Quantizatio
 - **Integers** (INT8→INT1, ternary) are pure precision with a *uniform* step; their dynamic range is entirely on loan from the external scale — great for weights, harder for outlier-prone activations.
 - The universal pattern: **low-precision storage, high-precision (FP32) accumulation** — store cheap, sum carefully.
 
+## Check Yourself
+
+<details class="check">
+<summary>How many bits per element does NVFP4 use, and where do they come from?</summary>
+<p>4 bits per FP4 element plus an 8-bit FP8 (E4M3) scale shared by 16 elements = 4 + 8/16 = 4.5 bits, plus a negligible FP32 per-tensor scale.</p>
+</details>
+
+<details class="check">
+<summary>What is E4M3's largest finite value, and why is it 448 rather than 240?</summary>
+<p>With IEEE-style handling, exponent 15 would be reserved for infinities and NaNs, leaving max 1.875 × 2⁷ = 240. The OCP e4m3fn variant keeps only S.1111.111 as NaN, so exponent 15 with mantissa 110 is a normal number: 1.75 × 2⁸ = 448.</p>
+</details>
+
+<details class="check">
+<summary>A block of 32 weights has max |w| = 0.9. What E8M0 scale does MXFP4 choose, and what is the largest representable value?</summary>
+<p>Shared exponent = ⌊log₂ 0.9⌋ − 2 = −1 − 2 = −3, so the scale is 2⁻³ = 0.125; the largest element is 6 × 0.125 = 0.75, so 0.9 saturates to 0.75. The power-of-two scale cannot fit amax exactly, one of NVFP4's motivations.</p>
+</details>
+
+<details class="check">
+<summary>Why can't FP4 be used without block scaling?</summary>
+<p>It has only 15 distinct values with a max of 6 and a smallest non-zero step of 0.5. Real weight tensors span several orders of magnitude, so a single global scale would zero out most values or clip the large ones.</p>
+</details>
+
+<details class="check">
+<summary>Why is 1.58 bits the information content of a ternary weight?</summary>
+<p>Three equally likely values carry log₂ 3 ≈ 1.585 bits; in practice ternary weights are packed (e.g. five values in one byte, 3⁵ = 243 ≤ 256), reaching 1.6 bits per weight.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| OCP 8-bit Floating Point Specification (OFP8) | Open Compute Project, 2023 | [opencompute.org/documents/ocp-8-bit-floating-…](https://www.opencompute.org/documents/ocp-8-bit-floating-point-specification-ofp8-revision-1-0-2023-12-01-pdf-1) | E4M3/E5M2 encodings, NaN and saturation rules |
+| OCP Microscaling Formats (MX) Specification v1.0 | Open Compute Project, 2023 | [opencompute.org/documents/ocp-microscaling-fo…](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf) | MXFP8/6/4 and MXINT8, E8M0 shared scale, scale-selection rule |
+| FP8 Formats for Deep Learning | P. Micikevicius et al., 2022 | [arxiv.org/abs/2209.05433](https://arxiv.org/abs/2209.05433) | E4M3 forward / E5M2 backward training recipe |
+| Microscaling Data Formats for Deep Learning | B. Rouhani et al., 2023 | [arxiv.org/abs/2310.10537](https://arxiv.org/abs/2310.10537) | Accuracy of MX formats for training and inference |
+| Introducing NVFP4 for Efficient and Accurate Low-Precision Inference | NVIDIA Technical Blog, 2025 | [developer.nvidia.com/blog/introducing-nvfp4-f…](https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/) | 16-element blocks, E4M3 block scale, FP32 tensor scale |
+| The Era of 1-bit LLMs: All Large Language Models are in 1.58 Bits (BitNet b1.58) | S. Ma et al., 2024 | [arxiv.org/abs/2402.17764](https://arxiv.org/abs/2402.17764) | Ternary-weight LLMs |
+| IEEE 754-2019 | IEEE | [doi.org/10.1109/IEEESTD.2019.8766229](https://doi.org/10.1109/IEEESTD.2019.8766229) | Base formats, subnormals, rounding |
+
 ---
 
-*Next: [Chapter 24 — Datatypes & Silicon](./24_datatypes_and_silicon.md), where we open up the multiplier and the tensor core to see exactly why fewer mantissa bits means quadratically cheaper hardware — and why peak throughput roughly doubles every time precision halves.*
+**Next:** [Chapter 24 — Datatypes & Silicon](./24_datatypes_and_silicon.md) — We open up the multiplier and the tensor core to see exactly why fewer mantissa bits means quadratically cheaper hardware — and why peak throughput roughly doubles every time precision halves.
 
 [← Back to Table of Contents](./README.md)
