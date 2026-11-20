@@ -25,7 +25,7 @@ Before drilling into mechanisms, set the frame. A CPU is **latency-optimized**:
     <div class="compare-title">CPU</div>
     <ul>
       <li><strong>Goal:</strong> minimize time to finish one task</li>
-      <li>~8–128 powerful cores</li>
+      <li>~8–192 powerful cores (up to 288 small cores)</li>
       <li>Each core: complex OoO logic, large caches, branch predictor</li>
       <li>Clock: 3–5 GHz</li>
       <li>Optimized for <strong>branchy, irregular, data-dependent</strong> code</li>
@@ -100,8 +100,8 @@ A simple in-order CPU stalls on instruction 2 until instruction 1's load returns
 
 **Register renaming** is the key insight that makes OoO safe. When a program writes register `R5` twice, the second write could look like it depends on the first (a "write-after-write" hazard). Renaming maps each architectural register name to a fresh **physical register** on every new definition — so the two writes go to different physical registers and can proceed independently.
 
-A modern server CPU (e.g., AMD EPYC Genoa core, Intel Sapphire Rapids core) maintains:
-- **ROB size:** 512–600 µops (Intel Golden Cove) — this is the "window" of instructions the CPU can look ahead across to find independent work.
+A modern server core (e.g., AMD Zen 5, Intel Redwood Cove/Lion Cove) maintains:
+- **ROB size:** ~320–512 µops (Zen 4: 320, Zen 5: 448, Intel Golden Cove: 512): the "window" of instructions the CPU can look ahead across to find independent work.
 - **Reservation stations:** 128–256 entries.
 - **Physical register file:** 280–400+ integer + 200+ FP physical registers.
 - **Issue width:** 4–6 µops per cycle (superscalar, described next).
@@ -112,15 +112,13 @@ A modern server CPU (e.g., AMD EPYC Genoa core, Intel Sapphire Rapids core) main
 
 "4-wide superscalar" means the CPU issues **up to 4 µops per clock cycle** to its execution units. A modern Intel or AMD core has multiple independent **execution ports**, each capable of handling certain classes of µop:
 
-| Port (Intel Golden Cove example) | Can execute |
+| Ports (Intel Golden Cove) | Can execute |
 |---|---|
-| Port 0 | Integer ALU, branch, multiply |
-| Port 1 | Integer ALU, SIMD shuffle |
-| Port 2, 3 | Load (from L1 cache) |
-| Port 4, 9 | Store address + store data |
-| Port 5 | SIMD ALU, permute |
-| Port 6 | Integer ALU, branch |
-| Port 7, 8 | Vector/SIMD multiply, FMA |
+| 0, 1, 5 | Integer ALU and vector ALU/FMA (512-bit operations pair ports 0+1, plus port 5 on server parts) |
+| 6, 10 | Integer ALU (port 6 and port 0 also take branches) |
+| 2, 3, 11 | Loads from the L1 data cache |
+| 7, 8 | Store-address generation |
+| 4, 9 | Store data |
 
 The scheduler dispatches up to one µop per port per cycle — so if it can find 6 independent µops ready, it dispatches 6 simultaneously. This is the "width" of the processor.
 
@@ -157,7 +155,7 @@ Speculative execution is the broader policy: the CPU does not just predict branc
 
 ## The Cache Hierarchy: Racing Against DRAM
 
-DRAM latency is ~60–100 ns. A 4 GHz clock ticks every 0.25 ns. A cache miss costs **240–400 cycles** of stalled execution. The CPU's answer is a hierarchy of increasingly large, increasingly slow caches:
+DRAM latency is ~80–120 ns load-to-use. A 4 GHz clock ticks every 0.25 ns, so a cache miss costs **300–500 cycles** of potential stall. The CPU's answer is a hierarchy of increasingly large, increasingly slow caches:
 
 <div class="diagram">
 <div class="diagram-title">CPU Cache Hierarchy (per modern server core)</div>
@@ -166,7 +164,7 @@ DRAM latency is ~60–100 ns. A 4 GHz clock ticks every 0.25 ns. A cache miss co
   <div class="layer"><strong>L1 Instruction + Data Cache</strong> — 32–64 KB each, ~4–5 cycle latency, per-core, SRAM</div>
   <div class="layer"><strong>L2 Cache</strong> — 256 KB – 2 MB, ~12–14 cycles, per-core, SRAM</div>
   <div class="layer"><strong>L3 Cache (LLC)</strong> — 4–256 MB (shared across all cores), ~40–50 cycles, SRAM/eDRAM</div>
-  <div class="layer"><strong>DRAM (DDR5 / LPDDR5)</strong> — GBs, ~60–100 ns latency (~240–400 cycles), off-chip</div>
+  <div class="layer"><strong>DRAM (DDR5 / LPDDR5X)</strong> — GBs to TBs, ~80–120 ns latency (~300–500 cycles), off-chip</div>
 </div>
 </div>
 
@@ -176,11 +174,11 @@ DRAM latency is ~60–100 ns. A 4 GHz clock ticks every 0.25 ns. A cache miss co
 | L1-I | 32–64 KB | 4–5 cycles | ~3 TB/s | Per-core |
 | L2 | 256 KB – 2 MB | 12–14 cycles | ~1 TB/s | Per-core |
 | L3 (LLC) | 4–256 MB | 40–50 cycles | ~200–400 GB/s | All cores |
-| DRAM | 32 GB – 6 TB | 60–100 ns | 50–460 GB/s | All cores + I/O |
+| DRAM | 32 GB – 6 TB | 80–120 ns | 50–850 GB/s per socket | All cores + I/O |
 
 **Cache line size:** 64 bytes on x86 (512 bits). When a cache miss occurs, the hardware fetches a full 64-byte line, not just the 4 or 8 bytes the instruction requested. This is why **spatial locality** (accessing adjacent memory locations) dramatically improves performance: subsequent accesses to the same line are free. Matrix operations in row-major order exploit this; column-major access to a row-major array defeats it.
 
-**L3 is a weapon, not just a safety net.** A modern AMD EPYC Genoa has **up to 1152 MB of L3** (384 cores × 3 MB LLC per CCX, with 3D V-Cache). Intel Xeon Sapphire Rapids has up to 112.5 MB. This is large enough to hold **medium-size embedding tables entirely in cache** — a design point that explains the CPU's competitiveness for recommendation-model inference where embedding lookup is the critical path.
+**L3 is a weapon, not just a safety net.** AMD's EPYC 9684X (Genoa-X) stacks 64 MB of SRAM (3D V-Cache) on each of its 12 compute dies for **1,152 MB of L3** across 96 cores; Intel's Xeon 6980P has 504 MB. That is large enough to hold **meaningful parts of a model's working set**, e.g. embedding hot rows or a small model's weights, entirely on-chip.
 
 ### Prefetching
 
@@ -211,11 +209,11 @@ A single scalar core multiplying two `float32` values does one multiply per cycl
 | AVX-512 (F) | 512-bit | 16 | 8 | 64 | 2017 (Skylake-SP) |
 | AVX-512 VNNI | 512-bit | — | — | 64 (INT8 dots) | 2019 (Cascade Lake) |
 | AVX-512 BF16 | 512-bit | — | — | 32 (BF16 dots) | 2021 (Cooper Lake) |
-| AMX-BF16, AMX-INT8 | 2D tile reg (1 KB) | — | — | 1024 INT8/cycle | 2023 (Sapphire Rapids) |
+| AMX-INT8 / BF16 / FP16 | 8 tile registers × 1 KB | — | — | 1,024 INT8 MACs/cycle/core | 2023 (Sapphire Rapids); FP16 2024 (Granite Rapids) |
 
 **AVX-512 VNNI** (Vector Neural Network Instructions) adds `VPDPBUSD`: compute 4 INT8 dot-products and accumulate into INT32 in a single instruction, across 16 lanes in parallel = **64 INT8 MACs per cycle per core**. This is what enables ~1–4 TOPS/socket for INT8 inference on modern Intel Xeon.
 
-**AMX (Advanced Matrix Extensions)** goes further. It adds **2D tile registers** (up to 16 tiles × 1 KB = 16 KB of registers) and dedicated **TMUL hardware** that performs a full 16×16 tile matrix multiply in a few cycles — essentially a small systolic array bolted onto each core. A Sapphire Rapids core achieves **~1.4 TFLOPS BF16** with AMX, a 32× jump over scalar FP32.
+**AMX (Advanced Matrix Extensions)** goes further. It adds **2D tile registers** (8 tiles × 1 KB = 8 KB) and dedicated **TMUL hardware**: one tile instruction multiplies a 16×64 INT8 tile by a 64×16 tile (16,384 MACs) over 16 cycles, i.e. 1,024 INT8 MACs or 512 BF16 MACs per cycle per core — essentially a small systolic array bolted onto each core. A Sapphire Rapids core achieves **~1.4 TFLOPS BF16** with AMX, a 32× jump over scalar FP32.
 
 ```python
 import torch
@@ -247,10 +245,21 @@ ARM's answer to AVX-512 is architecturally different: rather than fixing the reg
 
 Modern CPUs pack **multiple cores** on a single die, each a full OoO processor with its own L1 and L2 caches:
 
-- **Intel Sapphire Rapids:** up to 60 P-cores (no E-cores in server variant).
-- **AMD EPYC Genoa:** 96 Zen 4 cores.
-- **NVIDIA Grace:** 72 ARM Neoverse V2 cores.
-- **Ampere Altra:** 128 ARM Neoverse N1 cores.
+- **Intel Xeon 6:** up to 128 P-cores (Granite Rapids, 6900P series) or 288 E-cores (Sierra Forest; Clearwater Forest on Intel 18A in 2026).
+- **AMD EPYC 9005 (Turin):** up to 128 Zen 5 or 192 Zen 5c cores; Zen 6 "Venice" follows on TSMC N2.
+- **NVIDIA Grace:** 72 Arm Neoverse V2 cores beside each pair of Blackwell GPUs; Vera (Rubin generation) has 88 custom Arm cores.
+- **Arm cloud CPUs:** AWS Graviton4 (96 cores), Google Axion, Microsoft Cobalt 100, AmpereOne (up to 192 cores).
+
+<div class="die-wrap">
+<div class="die-frame">
+<div class="die" style="grid-template-columns:repeat(6,1fr);grid-template-areas:'a b c d e f' 'io io io io io io' 'g h i j k l';max-width:720px">
+<div class="blk cpu" style="grid-area:a">CCD<small>16 × Zen 5c</small></div><div class="blk cpu" style="grid-area:b">CCD<small>16 × Zen 5c</small></div><div class="blk cpu" style="grid-area:c">CCD<small>16 × Zen 5c</small></div><div class="blk cpu" style="grid-area:d">CCD<small>16 × Zen 5c</small></div><div class="blk cpu" style="grid-area:e">CCD<small>16 × Zen 5c</small></div><div class="blk cpu" style="grid-area:f">CCD<small>16 × Zen 5c</small></div>
+<div class="blk io" style="grid-area:io;min-height:64px">I/O die (TSMC N6)<small>12 DDR5 channels · 128 PCIe 5.0 / CXL 2.0 lanes · Infinity Fabric to every CCD</small></div>
+<div class="blk cpu" style="grid-area:g">CCD<small>32 MB L3</small></div><div class="blk cpu" style="grid-area:h">CCD<small>32 MB L3</small></div><div class="blk cpu" style="grid-area:i">CCD<small>32 MB L3</small></div><div class="blk cpu" style="grid-area:j">CCD<small>32 MB L3</small></div><div class="blk cpu" style="grid-area:k">CCD<small>32 MB L3</small></div><div class="blk cpu" style="grid-area:l">CCD<small>32 MB L3</small></div>
+</div>
+</div>
+<div class="die-caption">AMD EPYC 9965 (Turin, 2024), stylised: twelve 16-core compute dies (TSMC N3E) around one I/O die. Building 192 cores from small, high-yield chiplets is cheaper than one giant die; the cost is extra latency between dies (<a href="./appendix_e_packaging.html">Appendix E</a>).</div>
+</div>
 
 **SMT (Simultaneous Multithreading)** — called **Hyper-Threading** by Intel — runs two hardware threads per physical core by duplicating the register file and state, while sharing the execution units and caches. When one thread is stalled (e.g., waiting on a cache miss), the other thread's µops can be issued, improving **utilization** of the execution units. SMT typically adds ~10–30% throughput on mixed workloads for zero additional silicon in the execution units. It can hurt when both threads compete heavily for L1/L2 cache or reservation station entries.
 
@@ -284,6 +293,11 @@ import psutil
 
 ---
 
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>A 2026 server CPU has 600–850 GB/s of memory bandwidth and terabytes of capacity; an H100 has 3.35 TB/s but only 80 GB. For a 400B-parameter MoE model where each token touches ~5 % of the weights, which machine decodes faster at batch 1, and what changes at batch 64?</p>
+</div>
+
 ## Heterogeneous Cores: Big.LITTLE, P-core + E-core
 
 Modern consumer CPUs blend **fast "performance" cores (P-cores)** with **efficient "efficiency" cores (E-cores)**, trading peak single-thread speed for better power/performance across mixed workloads:
@@ -294,21 +308,21 @@ Modern consumer CPUs blend **fast "performance" cores (P-cores)** with **efficie
   <div class="diagram-card accent">
     <div class="card-icon">🚀</div>
     <div class="card-title">P-cores (Performance)</div>
-    <div class="card-desc">Full OoO, deep pipeline, large L2, AVX-512/AMX. High clock (5+ GHz). High TDP. Example: Intel Golden Cove (P-core in Alder Lake/Raptor Lake).</div>
+    <div class="card-desc">Full OoO, deep pipeline, large L2. High clock (5+ GHz). High power. Client P-cores run AVX2 (AVX-512 and AMX are on server Xeons). Example: Intel Lion Cove (Lunar Lake, Arrow Lake).</div>
   </div>
   <div class="diagram-card green">
     <div class="card-icon">🔋</div>
     <div class="card-title">E-cores (Efficiency)</div>
-    <div class="card-desc">Narrower OoO, shorter pipeline, shared L2 among cluster. Lower clock (~4 GHz). Low TDP. Example: Intel Gracemont (E-core in Alder Lake).</div>
+    <div class="card-desc">Narrower OoO, shorter pipeline, L2 shared by a 4-core cluster. Lower clock. A fraction of the area and power. Example: Intel Skymont (Lunar Lake, Arrow Lake).</div>
   </div>
 </div>
 </div>
 
-**Apple Silicon** takes this furthest: M4 Ultra has:
-- 10 P-cores (Everest) — full OoO, 512-bit AMX
-- 4 E-cores (Sawtooth) — efficient OoO
-- 40-core GPU
-- 32-core Neural Engine at 38 TOPS INT8
+**Apple Silicon** takes this furthest. An M4 Max (2024) has:
+- 12 P-cores and 4 E-cores, with a matrix coprocessor that M4 exposes as Arm **SME**
+- a 40-core GPU (M5 adds a "neural accelerator" to every GPU core)
+- a 16-core Neural Engine at 38 TOPS INT8
+- 546 GB/s of unified LPDDR5X memory shared by all of them
 
 The scheduler routes latency-sensitive threads to P-cores and background threads (compile jobs, daemons) to E-cores transparently. For ML inference that stays on CPU, **pin PyTorch threads to P-cores** to avoid the scheduler migrating hot threads to E-cores mid-inference.
 
@@ -316,18 +330,19 @@ The scheduler routes latency-sensitive threads to P-cores and background threads
 
 ## Server CPUs for ML: Specifications and Comparison
 
-| CPU | Cores | Base/Boost Clock | L3 Cache | SIMD Width | Peak BF16 TOPS (socket) | Mem BW | TDP |
-|-----|-------|-----------------|----------|-----------|------------------------|--------|-----|
-| Intel Xeon Platinum 8592+ (Emerald Rapids) | 64 | 1.9 / 3.9 GHz | 320 MB | 512-bit AMX | ~14 TOPS | 307 GB/s (DDR5-8800, 8-ch) | 350 W |
-| Intel Xeon w9-3595X (Sapphire Rapids-X) | 60 | 2.5 / 4.8 GHz | 112.5 MB | 512-bit AMX | ~11 TOPS | 350 GB/s (DDR5) | 350 W |
-| AMD EPYC 9965 Genoa (96c, 3D V-Cache) | 96 | 2.0 / 3.7 GHz | 1152 MB | 256-bit AVX-512 (no AMX) | ~3 TOPS INT8 | 461 GB/s (DDR5-4800, 12-ch) | 400 W |
-| NVIDIA Grace (GH200 CPU side) | 72 | 3.1 GHz | 114 MB | 512-bit SVE | ~2 TOPS INT8 | 512 GB/s (LPDDR5X, on-package) | 500 W (full GH200) |
-| Ampere Altra Max 128c | 128 | 3.0 GHz | 128 MB | 128-bit NEON | ~1 TOPS INT8 | 409 GB/s (DDR4, 8-ch) | 250 W |
-| Apple M4 Ultra (P-cores only) | 10 P + 4 E | up to 4.4 GHz | 100 MB | 512-bit AMX | ~10 TOPS (Neural Engine separate) | 546 GB/s (unified, LPDDR5X) | ~100 W (chip only) |
+| CPU | Cores | L3 / SLC | Vector and matrix units | Memory | Mem BW (peak) | TDP |
+|-----|-------|----------|-------------------------|--------|---------------|-----|
+| Intel Xeon 6980P (Granite Rapids, 2024) | 128 P | 504 MB | AVX-512 + AMX (INT8/BF16/FP16) | 12-ch DDR5-6400 or MRDIMM-8800 | 614 / 844 GB/s | 500 W |
+| Intel Xeon 8592+ (Emerald Rapids, 2023) | 64 | 320 MB | AVX-512 + AMX | 8-ch DDR5-5600 | 358 GB/s | 350 W |
+| AMD EPYC 9965 (Turin Dense, 2024) | 192 Zen 5c | 384 MB | AVX-512 (512-bit datapath) | 12-ch DDR5-6400 | 614 GB/s | 500 W |
+| AMD EPYC 9684X (Genoa-X, 2023) | 96 Zen 4 | 1,152 MB (3D V-Cache) | AVX-512 (256-bit datapath) | 12-ch DDR5-4800 | 461 GB/s | 400 W |
+| NVIDIA Grace (GH200 / GB200) | 72 Neoverse V2 | 114 MB | 4 × 128-bit SVE2 / NEON per core | LPDDR5X, on package | ~500 GB/s | ~250 W (CPU + memory) |
+| Ampere Altra Max M128-30 | 128 Neoverse N1 | 16 MB SLC | 2 × 128-bit NEON per core | 8-ch DDR4-3200 | 205 GB/s | 250 W |
+| Apple M4 Max | 12 P + 4 E | shared L2 + SLC | NEON + SME matrix unit | 512-bit LPDDR5X-8533 | 546 GB/s | ~70 W (est., whole chip) |
 
-Notes: TOPS figures are estimates using published AVX-512 VNNI / AMX throughput × core count; actual application throughput is lower. Memory bandwidth uses all channels at rated speed.
+For scale: AMX performs 1,024 BF16 FLOPs (2,048 INT8 operations) per cycle per core, so a 128-core Xeon 6 at ~2 GHz peaks near **260 TFLOPS BF16** on paper, about a quarter of one H100, with 4–7× less memory bandwidth. Sustained application throughput is lower.
 
-> **AMD EPYC vs Intel Xeon memory bandwidth:** the EPYC 9965 at 12 DDR5-4800 channels achieves ~461 GB/s — higher than Intel's 307–350 GB/s. For workloads that are memory-bandwidth-bound (large embedding lookups, full-precision LLM decode on CPU), AMD wins handily on bandwidth per socket. Intel wins on AMX peak compute.
+> **Memory bandwidth now decides CPU inference.** A Xeon 6 with MRDIMM-8800 reaches ~844 GB/s and an EPYC Turin ~614 GB/s per socket, both a large step up from the ~300–460 GB/s of the previous generation. For memory-bandwidth-bound work (large embedding lookups, CPU LLM decode), channels × transfer rate matters more than core count.
 
 ---
 
@@ -341,7 +356,7 @@ For AMD EPYC Genoa, 12 channels × DDR5-4800 × 8 B = 12 × 4800 × 10⁶ × 8 =
 
 DDR5 also supports **sub-channel mode**: each DIMM slot actually has two 32-bit sub-channels, effectively doubling the number of logical channels versus DDR4. This is why DDR5 can offer higher bandwidth even on the same physical channel count.
 
-**Contrast with GPU:** an H100 SXM5 provides **3.35 TB/s** HBM3 bandwidth — more than **7× a top server CPU** — while the CPU costs ~460 GB/s. This is the root reason GPU wins for memory-bandwidth-bound operations like large-batch matrix multiplies and attention.
+**Contrast with GPU:** an H100 SXM provides **3.35 TB/s** of HBM3 bandwidth and a B200 8 TB/s, 4–13× a top server CPU socket at ~600–850 GB/s. This is the root reason GPUs win memory-bandwidth-bound operations like LLM decode.
 
 ---
 
@@ -365,7 +380,7 @@ DDR5 also supports **sub-channel mode**: each DIMM slot actually has two 32-bit 
   <div class="diagram-card blue">
     <div class="card-icon">⚡</div>
     <div class="card-title">Low-Latency Single-Query Inference</div>
-    <div class="card-desc">Batch size 1, small model. GPU kernel launch overhead (~10–50 µs) dominates; a CPU executing AMX matmuls may be faster end-to-end.</div>
+    <div class="card-desc">Batch size 1, small model. Each GPU kernel launch costs ~5–20 µs of CPU-side overhead plus framework dispatch; for a model with hundreds of tiny ops, a CPU running AMX matmuls in cache can win end-to-end.</div>
   </div>
   <div class="diagram-card purple">
     <div class="card-icon">🦙</div>
@@ -387,7 +402,7 @@ DDR5 also supports **sub-channel mode**: each DIMM slot actually has two 32-bit 
 
 ### The Roofline on a CPU: Memory Bandwidth Bounds LLM Decode
 
-For LLM decode (autoregressive generation), each generated token requires loading the **entire model weight matrix** once — arithmetic intensity ≈ 1 FLOP / 2 bytes (half-precision) ≈ **0.5 FLOP/byte**. This is far below the ridge point on any CPU roofline:
+For LLM decode (autoregressive generation), each generated token requires loading the **entire model weight matrix** once — arithmetic intensity ≈ 2 FLOPs per 2-byte weight ≈ **1 FLOP/byte** in BF16. This is far below the ridge point on any CPU roofline:
 
 ```python
 # CPU Roofline estimate for LLM decode (memory-bandwidth bound):
@@ -411,7 +426,7 @@ tokens_per_second = mem_bw / model_bytes   # rough: 307e9 / 14e9 ≈ 21 tok/s
 print(f"Estimated decode speed (7B BF16, CPU): ~{tokens_per_second:.0f} tokens/sec")
 ```
 
-This is why **quantization to INT4 (Q4_K_M in llama.cpp) roughly doubles decode speed**: it halves the bytes transferred per token, directly doubling bandwidth-limited throughput.
+This is why **4-bit quantization (llama.cpp's Q4_K_M, ~4.8 bits per weight) speeds up CPU decode by roughly 3×** over FP16 and ~1.7× over Q8_0: tokens/s scales almost exactly with the inverse of bytes moved per token.
 
 ```python
 # Thread/affinity tuning for CPU inference:
@@ -471,13 +486,51 @@ model_compiled = torch.compile(model, backend="inductor")
 - **OoO execution** hides data hazards by finding independent µops in a window of ~512 instructions; the **ROB** ensures the visible state is always sequentially consistent.
 - **Branch misprediction** costs 15–20 cycles; modern predictors (TAGE) achieve ~99% accuracy on regular code, but truly random branches still hurt.
 - The **cache hierarchy** (L1 ~5 cycles, L2 ~14 cycles, L3 ~50 cycles, DRAM ~300 cycles) is the CPU's main weapon against the memory wall; **64-byte cache lines** reward spatial locality.
-- **SIMD units** (AVX-512, ARM SVE) and **matrix extensions** (Intel AMX, Apple AMX) give CPUs ~10–100× throughput on regular numerical code versus scalar; **AMX** gives Sapphire Rapids ~14 TOPS BF16 — enough for serious inference.
+- **SIMD units** (AVX-512, ARM SVE) and **matrix extensions** (Intel AMX, Arm SME) give CPUs ~10–100× throughput on regular numerical code versus scalar; **AMX** puts a 128-core Xeon 6 near ~260 TFLOPS BF16 on paper, a quarter of an H100.
 - Modern **server CPUs** (EPYC, Xeon, Grace, Altra) differ mainly in core count, memory channel count, cache size, and SIMD width — not in fundamental architecture.
 - **LLM decode on CPU is memory-bandwidth-bound**, not compute-bound; quantization (INT4/INT8) directly multiplies throughput by reducing bytes transferred per token.
 - CPUs are essential for **data pipelines, sparse embedding lookups, low-latency single-query inference, llama.cpp deployments, and accelerator orchestration** — and irreplaceable even in GPU-dominated stacks.
 
+## Check Yourself
+
+<details class="check">
+<summary>What does register renaming eliminate, and what does it leave?</summary>
+<p>It eliminates false dependencies (write-after-read and write-after-write on the same architectural register) by giving each new result its own physical register. True read-after-write dependencies remain: an instruction still has to wait for the value it actually consumes.</p>
+</details>
+
+<details class="check">
+<summary>Peak memory bandwidth of 12 channels of DDR5-6400?</summary>
+<p>12 × 6,400 × 10⁶ transfers/s × 8 bytes = 614.4 GB/s.</p>
+</details>
+
+<details class="check">
+<summary>Roughly how many tokens/s can a 12-channel DDR5-6400 server decode for a 70B model in Q4_K_M (~42 GB)?</summary>
+<p>Bound: 614 GB/s ÷ 42 GB ≈ 14.6 tokens/s at batch 1; real implementations reach perhaps 60–80 % of that, ~9–12 tokens/s.</p>
+</details>
+
+<details class="check">
+<summary>Why do client Intel P-cores lack AVX-512 when server cores have it?</summary>
+<p>Client chips pair P-cores with E-cores that do not implement AVX-512, and the OS must be able to move any thread to any core, so AVX-512 was fused off on hybrid parts from 2021. Intel's AVX10 plan exists to bring a common 512-bit ISA back to all cores.</p>
+</details>
+
+<details class="check">
+<summary>When can a CPU beat a GPU for inference?</summary>
+<p>When the model is small and batch size is 1 (GPU launch overhead dominates), when the model or embedding tables exceed GPU memory but fit in host DRAM, when data never needs to leave the CPU (pre- and post-processing), or when cost and availability matter more than peak speed.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Intel 64 and IA-32 Architectures Optimization Reference Manual | Intel | [intel.com/content/www/us/en/developer/article…](https://www.intel.com/content/www/us/en/developer/articles/technical/intel64-and-ia32-architectures-optimization.html) | Golden Cove ports, AMX throughput |
+| Software Optimization Guide for AMD Family 1Ah (Zen 5) | AMD | [amd.com/en/search/documentation/hub.html](https://www.amd.com/en/search/documentation/hub.html) | Zen 5 core resources: ROB, schedulers, AVX-512 datapath |
+| Chips and Cheese: microarchitecture deep dives | Chips and Cheese | [chipsandcheese.com](https://chipsandcheese.com/) | Measured latencies, cache sizes and core structures |
+| A New Case for the TAGE Branch Predictor | A. Seznec, MICRO 2011 | [doi.org/10.1145/2155620.2155635](https://doi.org/10.1145/2155620.2155635) | The TAGE predictor family used in modern cores |
+| llama.cpp | G. Gerganov et al. | [github.com/ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) | CPU LLM inference and the Q4_K_M format |
+| Spectre Attacks: Exploiting Speculative Execution | P. Kocher et al., IEEE S&P 2019 | [doi.org/10.1109/SP.2019.00002](https://doi.org/10.1109/SP.2019.00002) | Speculative side channels and their mitigations |
+
 ---
 
-*Next: [Chapter 15 — GPUs](./15_gpus.md), where we meet the chip that actually dominates ML training: thousands of simple cores, Tensor Cores, HBM, and the warp model that hides latency through massive multithreading instead of clever control logic.*
+**Next:** [Chapter 15 — GPUs](./15_gpus.md) — We meet the chip that actually dominates ML training: thousands of simple cores, Tensor Cores, HBM, and the warp model that hides latency through massive multithreading instead of clever control logic.
 
 [← Back to Table of Contents](./README.md)
