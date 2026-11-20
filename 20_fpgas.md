@@ -23,11 +23,11 @@ The tension FPGAs resolve is between **flexibility** and **efficiency**. Conside
 <div class="flow-h">
   <div class="flow-node accent">CPU<br/><small>fully flexible, 100–500 GFLOPS, ~200 W</small></div>
   <div class="flow-arrow accent"></div>
-  <div class="flow-node green">GPU<br/><small>data-parallel flex, ~1000 TOPS INT8, ~700 W</small></div>
+  <div class="flow-node green">GPU<br/><small>data-parallel flex, ~2,000–4,500 TOPS INT8/FP8 dense, 700–1,200 W</small></div>
   <div class="flow-arrow accent"></div>
-  <div class="flow-node blue">FPGA<br/><small>reconfigurable, ~10–100 TOPS INT8, 25–300 W</small></div>
+  <div class="flow-node blue">FPGA<br/><small>reconfigurable, ~25–150 TOPS INT8, 25–300 W</small></div>
   <div class="flow-arrow accent"></div>
-  <div class="flow-node purple">ASIC<br/><small>fixed-function, ~100–1000 TOPS INT8, 10–300 W</small></div>
+  <div class="flow-node purple">ASIC<br/><small>fixed-function, ~100–5,000 TOPS, 10–1,000 W</small></div>
 </div>
 </div>
 
@@ -113,22 +113,23 @@ $$P = A \times B + C \quad (A: 27\text{-bit},\ B: 18\text{-bit},\ P: 48\text{-bi
 
 at **up to 891 MHz** on Xilinx UltraScale+ (faster than LUT-based implementations). A single DSP slice does $2 \times 891 \times 10^6 = 1.78$ GOPS at 27-bit precision per cycle.
 
-| FPGA | DSP Slices | Peak INT8 TOPS (using DSP) | Peak BF16 TOPS |
-|---|---|---|---|
-| Xilinx Alveo U250 | 12,288 | ~10 TOPS | ~4 TOPS |
-| Xilinx Alveo U280 | 9,024 | ~7 TOPS | ~3 TOPS |
-| Intel Stratix 10 NX | 8,192 | ~15 TOPS | ~5 TOPS |
-| AMD Versal Premium | 2,880 DSP58 + 400 AI Engines | ~100 TOPS | ~58 TOPS |
-| AMD Versal AI Core | 1,968 DSP58 + 128 AI Engines | ~58 TOPS | ~34 TOPS |
+| FPGA | Arithmetic resources | Peak INT8 (vendor figure) |
+|---|---|---|
+| AMD/Xilinx Alveo U250 (UltraScale+) | 12,288 DSP48E2 | ~33 TOPS |
+| AMD/Xilinx Alveo U280 (UltraScale+, 8 GB HBM2) | 9,024 DSP48E2 | ~24.5 TOPS |
+| Intel/Altera Stratix 10 NX | 3,960 AI Tensor Blocks | up to ~143 TOPS |
+| AMD Versal AI Core VC1902 | 1,968 DSP58 + 400 AI Engines | ~133 TOPS |
 
-> **AI Engines** (AMD Versal): 1 GHz VLIW+SIMD cores, separate from LUTs, dedicated to floating-point and INT16/INT8 vector computation. A sign that FPGA vendors are hybridizing with ASIC-like structures to close the performance gap for ML.
+INT8 figures pack two 8-bit products into each wide DSP multiplier; real designs reach a fraction of them once routing and timing are closed.
+
+> **AI Engines** (AMD Versal): arrays of ~1–1.3 GHz VLIW + SIMD vector cores, separate from the LUT fabric, dedicated to INT8/INT16/FP32 vector and matrix work. The same tiles became the XDNA NPU in AMD's Ryzen AI laptop chips, a sign that FPGA vendors are hybridizing with ASIC-like structures.
 
 ### Block RAM (BRAM)
 
 Large lookup tables, weight buffers, and FIFO queues can't be built from LUTs efficiently. FPGAs include **block RAMs (BRAMs)** — hard SRAM macros of 18 Kb or 36 Kb each, clocked at FPGA frequency:
 
 - Xilinx Alveo U280: **2,016 BRAMs × 36 Kb = 72 Mb** of BRAM = **9 MB**
-- Bandwidth: 2 ports × 512 bits × 700 MHz = **716 GB/s aggregate** (across all BRAMs simultaneously)
+- Bandwidth: each BRAM has two ports up to 72 bits wide, so all 2,016 together at ~700 MHz deliver on the order of **25 TB/s** of aggregate on-chip bandwidth
 
 This per-BRAM bandwidth is huge compared to DDR (77 GB/s for LPDDR5). ML inference designs pack weight tensors into BRAM to avoid DRAM bandwidth bottlenecks — at the cost of fitting only small models (9 MB is ~9M INT8 params; a ViT-S fits; GPT-2 117M doesn't).
 
@@ -169,16 +170,16 @@ Modern FPGAs blur into **SoC-FPGAs** — chips that combine an FPGA fabric with 
     <div class="timeline-desc"><strong>SoC-FPGA</strong> — Xilinx Zynq-7000: dual ARM Cortex-A9 + FPGA fabric on one die</div>
   </div>
   <div class="timeline-item">
-    <div class="timeline-year">2016</div>
-    <div class="timeline-desc"><strong>HBM FPGA</strong> — Xilinx Alveo with HBM2; 460 GB/s; AI inference at scale</div>
+    <div class="timeline-year">2016–2018</div>
+    <div class="timeline-desc"><strong>HBM FPGA</strong> — Virtex UltraScale+ HBM (announced 2016); Alveo U280 card (2018) with 8 GB HBM2 at 460 GB/s</div>
   </div>
   <div class="timeline-item">
     <div class="timeline-year">2019</div>
     <div class="timeline-desc"><strong>Versal ACAP</strong> — AMD/Xilinx: FPGA + ARM + AI Engines (VLIW-SIMD at 1 GHz); hybrid accelerator</div>
   </div>
   <div class="timeline-item">
-    <div class="timeline-year">2023</div>
-    <div class="timeline-desc"><strong>Versal Premium / AI Edge</strong> — up to 400 AI Engines; ~58 TOPS INT8; power ~50–150 W</div>
+    <div class="timeline-year">2024–2026</div>
+    <div class="timeline-desc"><strong>Versal AI Edge / Prime Gen 2; Agilex 5–9</strong> — AMD adds AIE-ML v2 tiles and Arm Cortex-A78AE cores; Altera, spun out of Intel in 2025, ships Agilex devices with AI tensor blocks</div>
   </div>
 </div>
 </div>
@@ -230,7 +231,7 @@ For a full ML accelerator, the Verilog would describe: input FIFO → weight fet
 Writing RTL by hand for complex ML kernels is slow. **HLS** (High-Level Synthesis) tools compile C/C++ (or Python-subset) into RTL:
 
 - **Xilinx/AMD Vitis HLS**: C++ with `#pragma HLS PIPELINE`, `#pragma HLS UNROLL` → Verilog
-- **Intel HLS Compiler**: C++ with `[[intel::kernel_args_restrict]]` annotations
+- **Altera HLS (oneAPI-based)**: C++ with SYCL-style kernel annotations → RTL for Agilex and Stratix devices
 - **Bambu / LegUp**: open-source HLS research tools
 - **Keras2Chip / hls4ml**: Keras model → HLS → FPGA bitstream (CERN's hls4ml is widely used in physics experiments and edge ML)
 
@@ -258,19 +259,24 @@ accum_t dot_product(data_t a[128], data_t w[128]) {
 
 ---
 
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>An FPGA's LUT costs the same silicon whether it implements an AND gate or a ternary multiply, but it runs at a fifth of an ASIC's clock with ~10× the area per function. For a 1.58-bit (ternary) LLM, at what volume does a custom ASIC overtake an FPGA, and how would you decide before the model architecture settles?</p>
+</div>
+
 ## FPGA vs CPU vs GPU vs ASIC Tradeoffs
 
 | Property | CPU | GPU | FPGA | ASIC |
 |---|---|---|---|---|
 | Flexibility | Fully flexible | Moderate (fixed ISA) | Reconfigurable | Fixed forever |
 | Reconfigure time | N/A (s/w) | N/A (s/w) | Seconds (bitstream load) | Never |
-| Clock frequency | 3–5 GHz | 2–3 GHz | 300–750 MHz | 1–3 GHz |
-| INT8 TOPS per chip | 0.5–5 | 500–1000 | 7–100 | 50–2000 |
-| Power (peak) | 15–400 W | 300–1000 W | 25–300 W | 10–400 W |
+| Clock frequency | 3–6 GHz | 1.5–2.5 GHz | 300–750 MHz | 1–3 GHz |
+| INT8 TOPS per chip (dense) | 1–250 (with AMX) | 500–4,500 | ~25–150 | 50–5,000 |
+| Power (peak) | 15–500 W | 300–1,400 W | 25–300 W | 1–1,000 W |
 | Latency determinism | Poor (OS, branch) | Poor (scheduling) | **Excellent** (cycle-exact) | Excellent |
-| NRE cost | $0 | $0 | $0 | $10M–$500M |
-| Unit cost | $100–$10K | $2K–$30K | $500–$30K | $0.10–$1K |
-| Development time | Days | Days | Weeks–months | 12–24 months |
+| NRE cost | $0 | $0 | $0 (tools, engineering time) | $10M–$500M+ |
+| Unit cost | $100–$15K | $2K–$45K | $500–$30K | $0.10–$1K at volume |
+| Development time | Days | Days | Weeks–months | 12–36 months |
 | Ideal batch size | Any | Large (>16) | **1** (low latency) | Any |
 
 The **latency determinism** row is the key FPGA differentiator for ML. A GPU has stochastic scheduling jitter; an FPGA pipeline has **cycle-exact latency** — once the pipeline is filled, every inference takes *exactly* N clock cycles, guaranteed. For algorithmic trading, autonomous vehicle control, or network packet processing (where microsecond jitter causes failures), this is not a nice-to-have but a hard requirement.
@@ -293,7 +299,7 @@ FPGAs can implement **arbitrary bit-width arithmetic** that no CPU or GPU suppor
 - **Ternary / binary weights** (-1, 0, +1 or {-1, +1}): replace multiplications with additions/subtractions, implementable in LUTs with near-zero DSP cost.
 - **Block floating point** (a la MXFP; see [Chapter 23](./23_number_formats_deep_dive.md)): implement custom scale + mantissa arithmetic matched to your model's dynamic range.
 
-None of these are available on a stock GPU (which has INT8 tensor cores but not INT4 native in most generations, and no ternary path). An FPGA lets you tailor the multiplier width to exactly the model's quantization scheme.
+None of these are available on a stock GPU: NVIDIA added FP4 with Blackwell (and Turing/Ampere had INT4), but there is no ternary path and no arbitrary bit widths. An FPGA lets you tailor the multiplier width to exactly the model's quantization scheme.
 
 ```python
 # Demonstrate ternary weight inference — what an FPGA would compute in LUTs
@@ -326,12 +332,12 @@ Before committing $20M+ to an ASIC tape-out, chip designers **emulate their RTL 
 | Vendor | Key FPGA Families | Notes |
 |---|---|---|
 | AMD (acquired Xilinx 2022) | Artix, Kintex, Virtex, Versal, Alveo | Market leader; Vivado toolchain |
-| Intel (acquired Altera 2015) | Cyclone, Arria, Stratix | Quartus toolchain; used in Azure Brainwave |
+| Altera (Intel 2015–2025; independent since 2025, majority-owned by Silver Lake) | Agilex 3/5/7/9, Stratix, Cyclone | Quartus toolchain; Stratix 10 powered Azure's Brainwave |
 | Lattice | ECP5, Crosslink, Nexus | Low-power, edge; used in automotive and IoT |
 | Microchip (acquired Microsemi) | SmartFusion, PolarFire | Radiation-tolerant; space, defense |
 | Achronix | Speedster7t | HBM-enabled; ML-focused |
 
-AMD/Intel have ~90% of the high-performance FPGA market.
+AMD and Altera together hold the large majority (roughly 85–90 %) of the FPGA market.
 
 ---
 
@@ -358,7 +364,7 @@ AMD/Intel have ~90% of the high-performance FPGA market.
   </div>
   <div class="diagram-card orange">
     <div class="card-title">Bandwidth-Bound Models</div>
-    <div class="card-desc">FPGAs with HBM2 (460 GB/s) can match a GPU on bandwidth-bound workloads (small-batch transformer decode) at lower power and lower latency variance.</div>
+    <div class="card-desc">HBM FPGAs (~460–820 GB/s) can rival older or inference-class GPUs on bandwidth per watt and on latency variance for small-batch decode, though not flagship GPUs (3–8 TB/s) on absolute bandwidth.</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">Edge / Power-Constrained</div>
@@ -379,8 +385,41 @@ AMD/Intel have ~90% of the high-performance FPGA market.
 - **AI on FPGAs** includes Microsoft Brainwave (Azure low-latency inference), hls4ml (physics and edge ML), and custom quantized (INT4, ternary) dataflows no GPU supports natively.
 - FPGAs are the essential tool for **ASIC prototyping** — every major AI chip (TPU, Hopper, M-series) was emulated on FPGA farms before tape-out.
 
+## Check Yourself
+
+<details class="check">
+<summary>How many distinct Boolean functions can a LUT6 implement, and why does that make it function-agnostic?</summary>
+<p>Its 64 configuration bits can hold any truth table, so 2⁶⁴ functions of six inputs. Any function costs the same one LUT, which is why FPGA area is counted in LUTs regardless of what they compute.</p>
+</details>
+
+<details class="check">
+<summary>Why do FPGAs clock at 300–750 MHz when ASICs on the same node run at 2–3 GHz?</summary>
+<p>Every connection passes through programmable switch matrices and long generic wires, adding resistance and capacitance, and logic is built from LUTs rather than optimised gates. Critical paths are several times longer than in a custom design.</p>
+</details>
+
+<details class="check">
+<summary>When does an FPGA beat a GPU for inference?</summary>
+<p>Batch-1, hard real-time workloads where cycle-exact latency matters (trading, network functions, control loops), unusual datatypes (ternary, odd bit widths), or direct sensor and network I/O at line rate; and when volumes are too small to justify an ASIC.</p>
+</details>
+
+<details class="check">
+<summary>What is HLS, and what does it not remove?</summary>
+<p>High-level synthesis compiles annotated C/C++ into RTL, raising productivity. It does not remove the need to think in hardware terms: pipelining, memory partitioning, resource use and timing closure still decide whether the design is fast.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| UltraScale Architecture CLB User Guide (UG574) | AMD/Xilinx | [docs.amd.com/v/u/en-US/ug574-ultrascale-clb](https://docs.amd.com/v/u/en-US/ug574-ultrascale-clb) | CLB composition: LUT6, flip-flops, carry chains |
+| Alveo U280 Data Center Accelerator Card | AMD/Xilinx | [amd.com/en/products/accelerators/alveo/u280.html](https://www.amd.com/en/products/accelerators/alveo/u280.html) | Resources, 8 GB HBM2 at 460 GB/s, INT8 throughput |
+| Versal AI Core Series | AMD | [amd.com/en/products/adaptive-socs-and-fpgas/v…](https://www.amd.com/en/products/adaptive-socs-and-fpgas/versal/ai-core-series.html) | AI Engine arrays and INT8 throughput |
+| Stratix 10 NX FPGA (AI Tensor Blocks) | Intel / Altera | [intel.com/content/www/us/en/products/details/…](https://www.intel.com/content/www/us/en/products/details/fpga/stratix/10/nx.html) | AI Tensor Block INT8 throughput |
+| A Configurable Cloud-Scale DNN Processor for Real-Time AI (Brainwave) | J. Fowers et al., ISCA 2018 | [doi.org/10.1109/ISCA.2018.00012](https://doi.org/10.1109/ISCA.2018.00012) | FPGA soft NPU serving at batch 1 |
+| hls4ml: fast ML inference on FPGAs | FastML / CERN | [fastmachinelearning.org/hls4ml](https://fastmachinelearning.org/hls4ml/) | Model-to-FPGA flow used in physics triggers |
+
 ---
 
-*Next: [Chapter 21 — ASICs](./21_asics.md), where we go all the way to the other extreme: purpose-built silicon with no flexibility at all — and 10–100× better efficiency for it.*
+**Next:** [Chapter 21 — ASICs](./21_asics.md) — We go all the way to the other extreme: purpose-built silicon with no flexibility at all — and 10–100× better efficiency for it.
 
 [← Back to Table of Contents](./README.md)
