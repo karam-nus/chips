@@ -45,6 +45,45 @@ The design flow is best understood as a series of **representation changes**, ea
 
 These stages are not purely sequential — verification runs in parallel with every other stage, and timing concerns intrude as early as microarchitecture. But logically, each stage produces the input the next requires.
 
+The straight arrows above hide where the calendar actually goes. Redrawn with its loops, the same flow looks like this:
+
+<!-- flowchart:design_flow -->
+<div class="flowchart" id="fc-design_flow">
+<div class="fc-title">From specification to silicon, and the loops in between</div>
+<svg viewBox="0 0 780 420" width="780" role="img" aria-label="From specification to silicon, and the loops in between">
+<path class="fc-edge" d="M130,62 L130,100"/><polygon class="fc-head" points="130,100 126.2,93 133.8,93"/>
+<path class="fc-edge" d="M130,144 L130,182"/><polygon class="fc-head" points="130,182 126.2,175 133.8,175"/>
+<path class="fc-edge" d="M130,226 L130,264"/><polygon class="fc-head" points="130,264 126.2,257 133.8,257"/>
+<path class="fc-edge" d="M230,286 L290,286"/><polygon class="fc-head" points="290,286 283,289.9 283,282.1"/>
+<path class="fc-edge" d="M390,270 L390,220"/><polygon class="fc-head" points="390,220 393.9,227 386.1,227"/>
+<path class="fc-edge" d="M390,188 L390,138"/><polygon class="fc-head" points="390,138 393.9,145 386.1,145"/>
+<path class="fc-edge" d="M390,106 L390,56"/><polygon class="fc-head" points="390,56 393.9,63 386.1,63"/>
+<path class="fc-edge" d="M490,40 L550,40"/><polygon class="fc-head" points="550,40 543,43.9 543,36.1"/>
+<path class="fc-edge" d="M650,62 L650,100"/><polygon class="fc-head" points="650,100 646.1,93 653.9,93"/>
+<path class="fc-edge" d="M650,144 L650,182"/><polygon class="fc-head" points="650,182 646.1,175 653.9,175"/>
+<path class="fc-edge" d="M650,226 L650,270"/><polygon class="fc-head" points="650,270 646.1,263 653.9,263"/>
+<path class="fc-edge" d="M650,302 L650,350"/><polygon class="fc-head" points="650,350 646.1,343 653.9,343"/>
+<path class="fc-edge loop" d="M30,204 L14,204 L14,122 L30,122"/><polygon class="fc-head loop" points="30,122 23,125.8 23,118.2"/><text class="fc-elabel loop" x="20" y="166" text-anchor="start">bug</text>
+<path class="fc-edge loop" d="M550,40 L520,48 L520,204 L490,204"/><polygon class="fc-head loop" points="490,204 497,200.2 497,207.8"/><text class="fc-elabel loop" x="526" y="160" text-anchor="start">timing fails</text>
+<path class="fc-edge loop" d="M550,372 L4,372 L4,130 L30,122"/><polygon class="fc-head loop" points="30,122 24.4,127.7 22.2,120.4"/><text class="fc-elabel loop" x="300" y="366" text-anchor="middle">silicon bug: metal ECO or respin</text>
+<g class="fc-node start"><rect x="30" y="18" width="200" height="44" rx="16"/><text x="130" y="38" text-anchor="middle">Spec &amp; architecture</text><text class="sub" x="130" y="51" text-anchor="middle">performance model, PPA targets</text></g>
+<g class="fc-node k-blue"><rect x="30" y="100" width="200" height="44" rx="6"/><text x="130" y="120" text-anchor="middle">RTL design</text><text class="sub" x="130" y="133" text-anchor="middle">SystemVerilog / Verilog</text></g>
+<a href="./32_chip_verification_and_validation.html"><g class="fc-node k-purple"><rect x="30" y="182" width="200" height="44" rx="6"/><text x="130" y="202" text-anchor="middle">Functional verification</text><text class="sub" x="130" y="215" text-anchor="middle">simulation, UVM, formal, emulation</text></g></a>
+<g class="fc-node k-cyan"><rect x="30" y="264" width="200" height="44" rx="6"/><text x="130" y="284" text-anchor="middle">Logic synthesis</text><text class="sub" x="130" y="297" text-anchor="middle">RTL → gate netlist</text></g>
+<g class="fc-node k-green"><rect x="290" y="270" width="200" height="32" rx="6"/><text x="390" y="290" text-anchor="middle">Floorplan &amp; power grid</text></g>
+<g class="fc-node k-green"><rect x="290" y="188" width="200" height="32" rx="6"/><text x="390" y="208" text-anchor="middle">Placement</text></g>
+<g class="fc-node k-green"><rect x="290" y="106" width="200" height="32" rx="6"/><text x="390" y="126" text-anchor="middle">Clock-tree synthesis</text></g>
+<g class="fc-node k-green"><rect x="290" y="24" width="200" height="32" rx="6"/><text x="390" y="44" text-anchor="middle">Routing</text></g>
+<g class="fc-node k-orange"><rect x="550" y="18" width="200" height="44" rx="6"/><text x="650" y="38" text-anchor="middle">Static timing analysis</text><text class="sub" x="650" y="51" text-anchor="middle">every path, every corner</text></g>
+<g class="fc-node k-orange"><rect x="550" y="100" width="200" height="44" rx="6"/><text x="650" y="120" text-anchor="middle">Physical verification</text><text class="sub" x="650" y="133" text-anchor="middle">DRC / LVS / antenna</text></g>
+<g class="fc-node k-orange"><rect x="550" y="182" width="200" height="44" rx="6"/><text x="650" y="202" text-anchor="middle">Signoff</text><text class="sub" x="650" y="215" text-anchor="middle">IR drop, EM, power, ECO</text></g>
+<a href="./appendix_a_how_chips_are_made.html"><g class="fc-node leaf k-pink"><rect x="550" y="270" width="200" height="32" rx="6"/><text x="650" y="290" text-anchor="middle">Tapeout (GDSII → masks)</text></g></a>
+<g class="fc-node k-red"><rect x="550" y="350" width="200" height="44" rx="6"/><text x="650" y="370" text-anchor="middle">Post-silicon bring-up</text><text class="sub" x="650" y="383" text-anchor="middle">validation on real parts</text></g>
+</svg>
+<div class="fc-caption">Dashed copper edges are iterations. Most of a project's calendar is spent in the loops, not the straight path: verification typically consumes more engineering effort than design.</div>
+</div>
+<!-- /flowchart:design_flow -->
+
 ---
 
 ## Stage 1 — Specification and Architecture
@@ -81,7 +120,7 @@ The **PPA triangle** — **Power, Performance, Area** — is the master trade-of
 </div>
 </div>
 
-The **process node** sets the playing field. At TSMC N3 (2023), a standard NAND2 cell is roughly 0.01 µm²; at N7 (2018) it was roughly 0.04 µm². The 4× density gain between N7 and N3 means you can either fit 4× more logic in the same area or shrink the die by 4× at the same logic count.
+The **process node** sets the playing field. A two-input NAND cell is roughly 0.04 µm² at TSMC N7 (2018) and roughly 0.02 µm² at N3 (2023). TSMC quotes about 1.8× logic density from N7 to N5 and about 1.6× more from N5 to N3, so N3 packs roughly 3× the logic of N7 in the same area. SRAM scales far worse: N3E's high-density bit cell (0.021 µm²) is no smaller than N5's, which is why on-chip memory takes a growing share of every new AI die.
 
 ### Architecture Choices That Constrain Everything
 
@@ -106,8 +145,9 @@ The dominant HDLs are **Verilog** and **SystemVerilog** (a superset of Verilog w
 
 ### What RTL Looks Like: A Pipelined Multiplier-Accumulator
 
-Here is a small but real RTL example: a single-cycle MAC (multiply-accumulate) unit, the atom of any neural-network accelerator. It takes two INT8 operands, multiplies them (producing an INT16 product), and accumulates into a 32-bit sum — the fundamental operation of a matrix multiply.
+Here is a small but real RTL example: a two-stage pipelined MAC (multiply-accumulate) unit, the atom of any neural-network accelerator. It takes two INT8 operands, multiplies them (producing an INT16 product), and accumulates into a 32-bit sum — the fundamental operation of a matrix multiply.
 
+{% raw %}
 ```verilog
 // mac_unit.v  -- 8-bit multiply-accumulate, pipelined (2 stages)
 // Stage 1: register inputs, compute product
@@ -159,6 +199,7 @@ module mac_unit (
 
 endmodule
 ```
+{% endraw %}
 
 Notice several important RTL properties:
 - **Everything is synchronous with the clock** — state only changes at `posedge clk`. This is the register-transfer model.
@@ -200,13 +241,15 @@ A modern AI accelerator may have **1–10 million lines of RTL** spread across h
 
 A **standard cell** is a pre-characterized logic primitive — a NAND2, NOR3, DFF, MUX2, XNOR2, full adder, and hundreds of variants — laid out at a fixed height to fit on a design grid. Each cell in the library is characterized at multiple **corners** (process/voltage/temperature combinations) to capture worst-case timing:
 
-| Cell | Function | Drive strength | Area (N3 ≈) | Delay (typ) |
+| Cell | Function | Drive strength | Area (NAND2 equivalents) | Delay (typ, N3-class) |
 |---|---|---|---|---|
-| `NAND2_X1` | 2-input NAND | 1× | ~0.012 µm² | ~10 ps |
-| `NAND2_X4` | 2-input NAND | 4× | ~0.040 µm² | ~8 ps |
-| `DFF_X1` | D flip-flop | 1× | ~0.025 µm² | clk→q ~20 ps |
-| `MUX2_X2` | 2:1 mux | 2× | ~0.030 µm² | ~12 ps |
-| `FA_X1` | Full adder | 1× | ~0.050 µm² | ~18 ps |
+| `NAND2_X1` | 2-input NAND | 1× | 1 (≈ 0.02 µm² at N3) | ~10 ps |
+| `NAND2_X4` | 2-input NAND | 4× | ~3 | ~8 ps |
+| `DFF_X1` | D flip-flop | 1× | ~4–6 | clk→q ~20 ps |
+| `MUX2_X2` | 2:1 mux | 2× | ~2–3 | ~12 ps |
+| `FA_X1` | Full adder | 1× | ~5–7 | ~18 ps |
+
+Area is quoted in NAND2 equivalents ("gate equivalents"), the unit synthesis reports use, because it travels between nodes; the absolute values are illustrative.
 
 The library is called a **PDK (Process Design Kit)** or **standard-cell library** and is provided by the foundry (e.g., TSMC N5 standard cells). Using a standard-cell library is why chip design is feasible — you do not hand-design billions of gates; the synthesizer maps your RTL to cells from the library automatically.
 
@@ -351,7 +394,9 @@ At 3 nm, a chip may have **15+ metal layers**; the router is managing **hundreds
 
 **Parasitic extraction** follows routing: resistance ($R$) and capacitance ($C$) of every wire are extracted from the actual geometry. Wire delay is now:
 
-$$t_{\text{wire}} = 0.38 \cdot R \cdot C \quad \text{(Elmore delay for an RC wire)}$$
+$$t_{\text{wire}} \approx 0.38 \cdot R \cdot C \quad \text{(50\% delay of a distributed RC wire; the Elmore estimate is } 0.5\,RC\text{)}$$
+
+Because both $R$ and $C$ grow with length, wire delay grows with the *square* of length; that is why long wires are broken up with repeaters, and why at 3 nm a millimetre of thin wire can be slower than a dozen gates.
 
 These parasitics are back-annotated into the timing analysis for **sign-off accuracy**.
 
@@ -402,8 +447,8 @@ Together, DRC and LVS are the **signoff checks** that a foundry requires before 
 When DRC, LVS, and all timing checks pass, the design is **taped out**: the GDSII file is sent to the foundry. The foundry:
 
 1. **Runs their own checks** (OPC — optical proximity correction, adding sub-wavelength corrections to mask shapes to compensate for diffraction).
-2. **Generates photolithographic masks** — one per layer, per patterning step. At N3, a full mask set is ~80–100 masks and costs $15–30M.
-3. **Manufactures wafers** through ~1,000 process steps over 8–14 weeks (see [Appendix A](./appendix_a_how_chips_are_made.md)).
+2. **Generates photolithographic masks** — one per layer, per patterning step. At N3, a full mask set is ~80–100 masks (about two dozen of them EUV) and costs on the order of tens of millions of dollars; published estimates vary widely.
+3. **Manufactures wafers** through ~1,000 process steps over roughly 3–4 months at leading-edge nodes (see [Appendix A](./appendix_a_how_chips_are_made.md)).
 4. **Performs wafer-level electrical test** (probe testing).
 5. **Dices wafers** and packages good dies.
 6. **Ships to the designer** for post-silicon validation (Chapter 32).
@@ -414,18 +459,18 @@ The total elapsed time from tapeout to packaged silicon in the designer's hands 
 
 ## The EDA Toolchain
 
-The design flow is enabled by **EDA (Electronic Design Automation)** software — a $14B/year industry that is an effective duopoly:
+The design flow is enabled by **EDA (Electronic Design Automation)** software — an industry of roughly $18–20B a year including design IP, and an effective duopoly at the leading edge:
 
 <div class="diagram">
 <div class="diagram-title">EDA Toolchain — Key Players</div>
 <div class="diagram-grid cols-3">
   <div class="diagram-card accent">
     <div class="card-title">Synopsys</div>
-    <div class="card-desc">Design Compiler (synthesis), PrimeTime (STA), ICC2 (P&R), Formality (formal equiv.), VCS (simulation), VC Formal, Synopsys DSO.ai (ML-driven optimization). ~$6B revenue.</div>
+    <div class="card-desc">Design Compiler (synthesis), PrimeTime (STA), ICC2 (P&R), Formality (formal equiv.), VCS (simulation), VC Formal, Synopsys DSO.ai (ML-driven optimization). ~$7B revenue; bought Ansys (multiphysics simulation) in July 2025.</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Cadence</div>
-    <div class="card-desc">Genus (synthesis), Innovus (P&R), Tempus (STA), Xcelium (simulation), JasperGold (formal). ~$4B revenue. Strong in analog/mixed-signal.</div>
+    <div class="card-desc">Genus (synthesis), Innovus (P&R), Tempus (STA), Xcelium (simulation), JasperGold (formal), Cerebrus (ML-driven flow tuning). ~$5B revenue. Strong in analog/mixed-signal.</div>
   </div>
   <div class="diagram-card green">
     <div class="card-title">Siemens EDA (formerly Mentor)</div>
@@ -440,7 +485,15 @@ The design flow is enabled by **EDA (Electronic Design Automation)** software �
 - **OpenLane**: automated flow wrapper for OpenROAD targeting Skywater 130nm and GlobalFoundries 180nm PDKs. Excellent for learning.
 - **SymbiYosys**: open-source formal verification frontend.
 
-Open tools currently cannot compete with commercial EDA at leading nodes — the optimizations required for 3–5 nm at billion-gate scale need years of proprietary development. But they enable learning and smaller designs without six-figure tool licenses.
+Open tools currently cannot compete with commercial EDA at leading nodes — the optimizations required for 3–5 nm at billion-gate scale need years of proprietary development. But they enable learning and smaller designs without six-figure tool licenses, and open PDKs now exist for SkyWater 130 nm, GlobalFoundries 180 nm and IHP's 130 nm SiGe process.
+
+### Machine Learning Inside the Flow
+
+The tools that design AI chips increasingly use AI themselves. Synopsys DSO.ai and Cadence Cerebrus use reinforcement learning to search the thousands of knobs in synthesis and place-and-route, and both vendors report production tape-outs that used them. Google's AlphaChip (published in *Nature* in 2021) applies reinforcement learning to macro placement and has been used on several TPU generations, though its claimed advantage over well-tuned conventional placers has been publicly disputed. The pattern is the one this guide keeps returning to: the search is expensive, the evaluation (timing, power, congestion) is cheap to automate, and so it gets automated.
+
+### The 2026 Flow Is Multi-Die
+
+A leading AI accelerator is no longer one die. B200 is two reticle-sized dies joined by a 10 TB/s link; MI355X stacks compute chiplets on I/O dies; HBM stacks sit beside them on an interposer ([Chapter 22](./22_socs.md), [Appendix A](./appendix_a_how_chips_are_made.md)). The flow above therefore runs once per die and then again at the package level: die-to-die interfaces (often UCIe), partitioning decisions made at the architecture stage, and signoff that now includes thermal and mechanical stress across the stack. That last item is why the largest EDA deal on record, Synopsys buying Ansys, was about simulation physics rather than logic.
 
 ---
 
@@ -503,7 +556,7 @@ The design flow above describes a sequence of stages, each with substantial iter
 </div>
 </div>
 
-The **cost breakdown** for a 5 nm AI ASIC ($80–150M NRE total):
+The **cost breakdown** for a focused 5 nm AI ASIC ($80–150M NRE total) looks roughly like this. Industry estimates for a full leading-edge SoC program, including software and validation, run far higher: the widely quoted IBS figures exceed $500M at 5 nm and below.
 
 | Cost category | Approximate share |
 |---|---|
@@ -548,7 +601,7 @@ Synthesis report for adder4:
   With register:    Max frequency depends on clock-to-Q + setup + uncertainty
 ```
 
-A real 32-bit adder at the same node would use a carry-lookahead or carry-select architecture to reduce the critical path from $32 \times 18\,\text{ps}$ to roughly $\log_2(32) \times 18\,\text{ps}$ — a 5× speedup from better topology, not smaller transistors.
+A real 32-bit adder at the same node would use a carry-lookahead or carry-select architecture to reduce the critical path from $32 \times 18\,\text{ps}$ to roughly $\log_2(32) \times 18\,\text{ps}$ — about a 6× speedup from better topology, not smaller transistors.
 
 ---
 
@@ -560,9 +613,14 @@ FPGAs skip the synthesis-through-fab portion. You still write RTL, run synthesis
 
 This is why the standard ASIC development methodology uses FPGAs as **pre-silicon emulators**: run the RTL on FPGA clusters at 10–100 MHz to find bugs and run software stacks before first silicon (Chapter 32). Google, Apple, NVIDIA, and AWS all maintain large FPGA farms (Palladium-class emulators or HAPS boards) for exactly this purpose.
 
-The tradeoff: your FPGA-mapped accelerator runs at 200 MHz instead of 1.6 GHz, consumes 3× more power per operation, and has 5–20× more area per gate. The ASIC investment only pays off above a certain volume and when the workload is stable — the precise break-even analysis from [Chapter 21](./21_asics.md) applies.
+The tradeoff: your FPGA-mapped accelerator runs at 200 MHz instead of 1.6 GHz. Kuon and Rose's classic 90 nm comparison measured FPGA logic at roughly 20–35× the area, 3–4× the delay and 7–14× the dynamic power of the same design in standard cells, with hard DSP and RAM blocks at the better end of each range. The ASIC investment only pays off above a certain volume and when the workload is stable — the precise break-even analysis from [Chapter 21](./21_asics.md) applies.
 
 ---
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>FP8 support took from roughly 2020 (when it was first specified) to 2022 (H100) to reach silicon, and NVFP4 a similar span. If a new number format or attention variant becomes standard next spring, which product generation is the earliest that could run it natively, and what would you do in the meantime?</p>
+</div>
 
 ## Why This Matters for Model Optimization / ML Engineers
 
@@ -587,11 +645,52 @@ Understanding the design flow reframes several puzzling observations about AI ha
 - **Synthesis** maps RTL to standard cells from a PDK-provided library; the synthesizer optimizes for timing, area, and power within constraints expressed in Tcl.
 - **Physical design** (floorplan → place → CTS → route) translates a gate netlist to physical coordinates. Parasitic extraction after routing enables accurate **STA (Static Timing Analysis)** at the actual $R$/$C$ values.
 - **Timing closure** — eliminating all negative-slack paths across all PVT corners and modes — is one of the largest schedule risks and an iterative, months-long effort.
-- **EDA is a duopoly** (Synopsys + Cadence) with Siemens dominating physical verification. Open tools (Yosys, OpenROAD) are viable for learning and small designs.
+- **EDA is a duopoly** (Synopsys + Cadence) with Siemens dominating physical verification; ML-driven flow tuning and multi-die, multiphysics signoff are the 2026 frontier. Open tools (Yosys, OpenROAD) are viable for learning and small designs.
 - **AI accelerator timelines of 2–3 years** are not organizational failure — they reflect the physics and economics of the design flow. Understanding the stages explains every constraint the ML practitioner encounters when trying to exploit new hardware.
+
+## Check Yourself
+
+<details class="check">
+<summary>A path has clock-to-Q 25 ps, 12 gates of 15 ps each, 60 ps of wire and a 20 ps setup time. What is the slack at 3 GHz, and does it pass?</summary>
+<p>T = 333 ps. Delay = 25 + 180 + 60 + 20 = 285 ps. Slack = +48 ps, so it passes setup (hold still has to be checked separately).</p>
+</details>
+
+<details class="check">
+<summary>Why are setup checks run at the slow corner and hold checks at the fast corner?</summary>
+<p>Setup fails when data arrives too late, which is worst with slow transistors, low voltage and high temperature. Hold fails when data changes too soon after the edge, which is worst when everything is fast.</p>
+</details>
+
+<details class="check">
+<summary>Why does wire delay grow with the square of wire length, and what do designers do about it?</summary>
+<p>Both resistance and capacitance are proportional to length, so the RC product scales as length². Long wires are split with repeaters (buffers), routed on thicker upper metal layers, or avoided by floorplanning blocks close together.</p>
+</details>
+
+<details class="check">
+<summary>An AI chip taped out in mid-2025. Roughly when could a format standardized in 2026 appear in that vendor's silicon?</summary>
+<p>Not in this chip. The next design would need the change at the architecture or RTL stage, then 18–24 months to tape-out plus 3–5 months of fab and packaging, so 2028 at the earliest.</p>
+</details>
+
+<details class="check">
+<summary>Why did the synthesis table switch from µm² to NAND2 equivalents?</summary>
+<p>Gate equivalents travel between nodes and libraries; absolute cell areas change with every process and are often under NDA. A synthesis report in gate equivalents lets you compare designs across nodes.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| CMOS VLSI Design: A Circuits and Systems Perspective (4th ed.) | Weste & Harris, 2010 | [pages.hmc.edu/harris/cmosvlsi/4e/index.html](https://pages.hmc.edu/harris/cmosvlsi/4e/index.html) | Timing, wires, standard cells |
+| Measuring the Gap Between FPGAs and ASICs | Kuon & Rose, IEEE TCAD 2007 | [doi.org/10.1109/TCAD.2006.884574](https://doi.org/10.1109/TCAD.2006.884574) | FPGA vs ASIC area, delay, power |
+| The Transient Response of Damped Linear Networks | Elmore, J. Appl. Phys. 1948 | [doi.org/10.1063/1.1697872](https://doi.org/10.1063/1.1697872) | Elmore delay |
+| A graph placement methodology for fast chip design | Mirhoseini et al., Nature 2021 | [doi.org/10.1038/s41586-021-03544-w](https://doi.org/10.1038/s41586-021-03544-w) | RL macro placement (AlphaChip) |
+| OpenROAD project | The OpenROAD Project | [theopenroadproject.org](https://theopenroadproject.org/) | Open-source RTL-to-GDSII flow |
+| Yosys Open SYnthesis Suite | YosysHQ | [yosyshq.net/yosys](https://yosyshq.net/yosys/) | Open-source synthesis |
+| SkyWater SKY130 open PDK | SkyWater / Google | [github.com/google/skywater-pdk](https://github.com/google/skywater-pdk) | Open 130 nm process design kit |
+| Synopsys completes acquisition of Ansys | Synopsys, July 2025 | [news.synopsys.com/2025-07-17-Synopsys-Complet…](https://news.synopsys.com/2025-07-17-Synopsys-Completes-Acquisition-of-Ansys) | EDA consolidation toward multiphysics |
+| UCIe specification | UCIe Consortium | [uciexpress.org/specifications](https://www.uciexpress.org/specifications) | Die-to-die interface standard |
 
 ---
 
-*Next: [Chapter 32 — Chip Verification & Validation](./32_chip_verification_and_validation.md), the deep dive into how correctness is proved before and after silicon: simulation, UVM, assertions, formal verification, emulation, DFT, and post-silicon bring-up — with concrete code examples.*
+**Next:** [Chapter 32 — Chip Verification & Validation](./32_chip_verification_and_validation.md) — The deep dive into how correctness is proved before and after silicon: simulation, UVM, assertions, formal verification, emulation and bring-up.
 
 [← Back to Table of Contents](./README.md)
