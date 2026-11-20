@@ -225,7 +225,7 @@ CHARTS["request_life"] = dict(
     caption="Prefill is one large, compute-bound pass; decode is a long loop of small, memory-bound passes. Almost every serving optimisation targets the loop.",
     nodes=[
         N("p", 100, 50, "Prompt arrives", kind="start", sub="N tokens", w=160),
-        N("pf", 340, 50, "Prefill", k="green", sub=["all N tokens in one batched GEMM pass", "compute-bound"], w=250),
+        N("pf", 318, 50, "Prefill", k="green", sub=["all N tokens, one batched GEMM pass", "compute-bound"], w=220),
         N("kv", 640, 50, "KV cache in HBM", kind="leaf", k="purple", sub=["2 × layers × KV heads × head dim", "× bytes, per token"], w=240, link="./09_memory_types.html"),
         N("dec", 640, 168, "Decode step", k="orange", sub=["read every weight + this sequence's KV", "memory-bound at small batch"], w=260),
         N("eos", 640, 278, ["End of sequence?"], kind="dec", w=210),
@@ -233,7 +233,7 @@ CHARTS["request_life"] = dict(
         N("done", 110, 278, "Response complete", kind="start", w=180),
         N("bat", 300, 168, "Continuous batching", k="teal", sub=["many sequences share each weight read,", "raising FLOPs per byte"], w=260, link="./11_memory_wall_and_bandwidth.html"),
     ],
-    edges=[E("p", "pf", "r", "l"), E("pf", "kv", "r", "l", label="writes K, V", lpos=(493, 40, "middle")), E("kv", "dec", "b", "t"),
+    edges=[E("p", "pf", "r", "l"), E("pf", "kv", "r", "l", label="writes K,V", lpos=(474, 41, "middle")), E("kv", "dec", "b", "t"),
            E("dec", "eos", "b", "t"), E("eos", "dec", "r", "r", label="no: next token", kind="loop", via=[(790, 278), (790, 168)], lpos=(784, 226, "end")),
            E("eos", "free", "l", "r", label="yes", lpos=(525, 270, "end")), E("free", "done", "l", "r"),
            E("bat", "dec", "r", "l", kind="loop")],

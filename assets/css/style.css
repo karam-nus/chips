@@ -2124,6 +2124,25 @@ figure.figure figcaption { margin-top: 0.5rem; font-size: 0.8125rem; color: var(
 .lab .chip-row button { font-size: 0.7rem; padding: 0.2rem 0.5rem; }
 .lab .chip-row button.off { border-color: var(--border); color: var(--text-muted); background: transparent; }
 
+
+/* --- HBM budget bars (stacked capacity) --- */
+.budget { margin: 1.5rem 0; display: grid; gap: 0.85rem; }
+.bg-row { display: grid; grid-template-columns: 180px 1fr; gap: 0.25rem 0.85rem; align-items: center; }
+.bg-name { font-size: 0.8rem; font-weight: 600; color: var(--text-primary); line-height: 1.25; }
+.bg-name small { display: block; font-weight: 400; color: var(--text-muted); font-size: 0.7rem; }
+.bg-track { height: 28px; width: calc(var(--cap) * 1%); min-width: 60px; display: flex; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); background: var(--bg-surface); }
+.bg-track i { font-style: normal; flex: 0 0 calc(var(--v) * 1%); display: flex; align-items: center; justify-content: center; font-size: 0.66rem; font-weight: 700; white-space: nowrap; overflow: hidden; color: #1a1a1a; }
+.bg-track i.w { background: var(--accent); }
+.bg-track i.kv { background: #60a5fa; }
+.bg-track i.ws { background: #4b5563; color: #e5e7eb; }
+.bg-note { grid-column: 2; font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); }
+.bg-legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 0.72rem; color: var(--text-muted); }
+.bg-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.35rem; vertical-align: -1px; background: var(--c); }
+@media (max-width: 640px) {
+  .bg-row { grid-template-columns: 1fr; }
+  .bg-note { grid-column: 1; }
+}
+
 /* --- Print additions --- */
 @media print {
   .read-progress, .pager, .nav-filter, .copy-btn, .chapter-eyebrow { display: none !important; }
