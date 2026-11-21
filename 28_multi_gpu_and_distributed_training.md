@@ -31,6 +31,27 @@ Consider one scalar weight under mixed-precision training with Adam ([Ch 23](./2
 | Adam second moment $v$ | fp32 | 4 | running variance of gradients |
 | **Total (states only)** | | **16** | per parameter, before activations |
 
+<div class="receipts">
+<div class="receipt">
+<div class="r-head">TRAINING RECEIPT</div>
+<div class="r-sub">70B params · BF16 + FP32 Adam · per replica</div>
+<div class="r-rule"></div>
+<div class="r-line"><span>BF16 weights · 2 B</span><span>140 GB</span></div>
+<div class="r-line"><span>BF16 gradients · 2 B</span><span>140 GB</span></div>
+<div class="r-line"><span>FP32 master weights · 4 B</span><span>280 GB</span></div>
+<div class="r-line"><span>Adam m · 4 B</span><span>280 GB</span></div>
+<div class="r-line"><span>Adam v · 4 B</span><span>280 GB</span></div>
+<div class="r-rule"></div>
+<div class="r-total"><span>STATES · 16 B/param</span><span>1,120 GB</span></div>
+<div class="r-line muted"><span>activations, buffers</span><span>+ 100s of GB</span></div>
+<div class="r-rule"></div>
+<div class="r-line hl"><span>÷ one 80 GB H100</span><span>14.0×</span></div>
+<div class="r-line hl"><span>÷ one 288 GB B300</span><span>3.9×</span></div>
+<div class="r-foot">optimizer state alone (12 B) is 840 GB</div>
+<div class="r-barcode"></div>
+</div>
+</div>
+
 That's the famous **~16 bytes/param** for mixed-precision Adam — and it's a *floor*. Add temporary buffers, gradient accumulation copies, or fp32 gradients and it creeps to **18–20 bytes/param**. (Plain SGD with momentum is lighter, ~12 bytes/param; full fp32 Adam is heavier; but the bf16+Adam recipe above is the modern default.) On top of all this come **activations** — the intermediate tensors saved during the forward pass for the backward pass — which scale with batch size and sequence length, not parameter count, and can rival or exceed the state memory.
 
 > **The one-line proof you must shard:** a 70B model needs $70 \times 10^9 \times 16 \approx 1.12$ **TB** just for optimizer states — versus **80 GB** on an H100. You are off by **14×** before a single activation. There is no dtype trick that closes a 14× gap on one GPU; you *must* spread the state across many GPUs.
@@ -140,8 +161,8 @@ DP wastes memory: holding $N$ identical copies of 16 B/param across $N$ GPUs is 
   <div class="compare-side left">
     <div class="compare-title">What each stage shards (across N GPUs)</div>
     <ul>
-      <li><strong>ZeRO-1</strong>: optimizer states (m, v, fp32 master) → ~8 B/p sharded</li>
-      <li><strong>ZeRO-2</strong>: + gradients → +2 B/p sharded</li>
+      <li><strong>ZeRO-1</strong>: optimizer states (m, v, fp32 master) → 12 B/p sharded</li>
+      <li><strong>ZeRO-2</strong>: + gradients → 14 B/p sharded</li>
       <li><strong>ZeRO-3 / FSDP</strong>: + parameters → all 16 B/p sharded</li>
     </ul>
   </div>
@@ -149,9 +170,9 @@ DP wastes memory: holding $N$ identical copies of 16 B/param across $N$ GPUs is 
     <div class="compare-title">Per-GPU memory (70B, N=64)</div>
     <ul>
       <li>Plain DP: 1120 GB each — impossible</li>
-      <li>ZeRO-1: ~280 GB each — still too big</li>
-      <li>ZeRO-2: ~250 GB each</li>
-      <li>ZeRO-3/FSDP: ~17.5 GB each — <strong>fits!</strong></li>
+      <li>ZeRO-1: 4 + 12/64 B/p → ~293 GB each — still too big</li>
+      <li>ZeRO-2: 2 + 14/64 B/p → ~155 GB each — still too big</li>
+      <li>ZeRO-3/FSDP: 16/64 B/p → ~17.5 GB each — <strong>fits!</strong></li>
     </ul>
   </div>
 </div>
@@ -173,7 +194,7 @@ FSDP / ZeRO-3 forward for one layer:
 
 - **What's communicated:** all-gather of params (forward + backward) + reduce-scatter of grads. Total volume is roughly **1.5×** a plain DP all-reduce — a modest comms increase for an up-to-$N\times$ memory saving.
 - **Collectives:** `all-gather` (params), `reduce-scatter` (grads).
-- **The tradeoff:** ZeRO-1 is nearly free (comms = DP) and saves the biggest chunk (optimizer states are 8 of the 16 bytes). ZeRO-3/FSDP saves the most memory but adds the param all-gathers. You climb stages until the model fits.
+- **The tradeoff:** ZeRO-1 is nearly free (comms = DP) and saves the biggest chunk (optimizer states are 12 of the 16 bytes). ZeRO-3/FSDP saves the most memory but adds the param all-gathers. You climb stages until the model fits.
 
 ```python
 # FSDP wrap sketch (PyTorch). Wrapping per-block lets FSDP gather/free
@@ -219,7 +240,7 @@ The clever part of the Megatron scheme: pairing a **column-split** first matmul 
 
 - **What's communicated:** activations (the $Y$ partials), **twice per transformer block** (once forward, once backward), *every layer, every step*. This is frequent and latency-sensitive.
 - **Collective:** `all-reduce`, in the critical path of every layer.
-- **The interconnect demand:** because the all-reduce happens at *every* layer (every few hundred microseconds), TP only makes sense over **NVLink/NVSwitch** ([Ch 12](./12_buses_and_interconnects.md)) — ~900 GB/s within a node. Over PCIe or inter-node InfiniBand the per-layer all-reduce would dominate step time. **This is why TP stays within an NVLink island (typically ≤8 GPUs).**
+- **The interconnect demand:** because the all-reduce happens at *every* layer (every few hundred microseconds), TP only makes sense over **NVLink/NVSwitch** ([Ch 12](./12_buses_and_interconnects.md)) — ~900 GB/s within a node. Over PCIe or inter-node InfiniBand the per-layer all-reduce would dominate step time. **This is why TP stays within an NVLink island.** On an 8-GPU HGX server that island is 8 GPUs. On rack-scale systems (GB200/GB300 NVL72, and Vera Rubin NVL72 with NVLink 6 at 3.6 TB/s per GPU) it is 72 GPUs, which is why MoE expert parallelism now often spans a whole rack.
 
 ### Pipeline Parallelism (PP): Split the Layers Into Stages
 
@@ -275,7 +296,7 @@ Real frontier runs use **all of these at once**, and — crucially — map each 
 <div class="diagram">
 <div class="diagram-title">3D Parallelism Mapped to the Network Hierarchy</div>
 <div class="flow">
-  <div class="flow-node blue wide">Tensor Parallel (TP) — inside one node, over NVLink (~900 GB/s). Per-layer all-reduce. Degree ≤8.</div>
+  <div class="flow-node blue wide">Tensor Parallel (TP) — inside the NVLink domain (900 GB/s–3.6 TB/s per GPU). Per-layer all-reduce. Degree 8 on HGX, up to 72 on NVL72.</div>
   <div class="flow-arrow accent"></div>
   <div class="flow-node purple wide">Pipeline Parallel (PP) — across nodes, over InfiniBand (~50 GB/s). Small activation send/recv tolerates the slower link.</div>
   <div class="flow-arrow accent"></div>
@@ -285,7 +306,32 @@ Real frontier runs use **all of these at once**, and — crucially — map each 
 </div>
 </div>
 
-The arithmetic of degrees multiplies: total GPUs $= \text{TP} \times \text{PP} \times \text{DP}$. A 405B training run might use **TP=8** (one NVLink node), **PP=16** (16 nodes deep), **DP=16** (16 replicas) $= 2048$ GPUs. The mapping is deliberate: the chatty per-layer all-reduce rides NVLink, the infrequent pipeline activations cross the slower inter-node fabric, and the gradient all-reduce sits outermost where it can be overlapped with the whole backward pass. **Parallelism strategy is, fundamentally, a function of the interconnect topology.**
+The arithmetic of degrees multiplies: total GPUs $= \text{TP} \times \text{PP} \times \text{DP}$. Meta's Llama 3 405B pre-training used **TP=8** (one NVLink node), **PP=16** (16 nodes deep) and **DP=128** $= 16{,}384$ H100s, adding 16-way context parallelism for the long-context stage. The mapping is deliberate: the chatty per-layer all-reduce rides NVLink, the infrequent pipeline activations cross the slower inter-node fabric, and the gradient all-reduce sits outermost where it can be overlapped with the whole backward pass. **Parallelism strategy is, fundamentally, a function of the interconnect topology.**
+
+DeepSeek-V3 proves the point from the other direction. It trained on 2,048 H800s, whose NVLink was cut to 400 GB/s by export rules, so it used **no tensor parallelism at all**: 16-way pipeline parallelism with a custom schedule (DualPipe) that overlaps forward and backward communication, 64-way expert parallelism spread over 8 nodes, and ZeRO-1 data parallelism. When the fast link gets slower, the chattiest axis is the first to go.
+
+<div class="datasheet">
+<div class="ds-head"><span class="ds-part">RUN CARD</span><span class="ds-name">Two published 2024 training layouts</span><span class="ds-stamp ok">published</span><span class="ds-sub">from the Llama 3 and DeepSeek-V3 technical reports</span></div>
+<div class="ds-grid">
+<table><thead><tr><th colspan="2">Llama 3 405B · dense</th></tr></thead><tbody>
+<tr><td>GPUs</td><td class="v">16,384 × H100</td></tr>
+<tr><td>Tensor parallel</td><td class="v">8</td></tr>
+<tr><td>Pipeline parallel</td><td class="v">16</td></tr>
+<tr><td>Expert parallel</td><td class="v">—</td></tr>
+<tr><td>Data parallel</td><td class="v">128 (sharded)</td></tr>
+<tr><td>Precision</td><td class="v">BF16</td></tr>
+</tbody></table>
+<table><thead><tr><th colspan="2">DeepSeek-V3 671B · MoE, 37B active</th></tr></thead><tbody>
+<tr><td>GPUs</td><td class="v">2,048 × H800</td></tr>
+<tr><td>Tensor parallel</td><td class="v">none</td></tr>
+<tr><td>Pipeline parallel</td><td class="v">16 (DualPipe)</td></tr>
+<tr><td>Expert parallel</td><td class="v">64, across 8 nodes</td></tr>
+<tr><td>Data parallel</td><td class="v">ZeRO-1</td></tr>
+<tr><td>Precision</td><td class="v">FP8, fine-grained scales</td></tr>
+</tbody></table>
+</div>
+<div class="ds-foot">The layout follows the fabric: TP rides NVLink when it is fast; when it is not, pipeline and expert parallelism take its place.</div>
+</div>
 
 ---
 
@@ -331,7 +377,7 @@ $$T_{\text{all-reduce}} \approx \frac{2(N-1)}{N} \cdot \frac{\text{size}}{\text{
 
 The beautiful property: the per-GPU traffic is **independent of $N$** for large $N$ — ring all-reduce is bandwidth-optimal. (A **tree** all-reduce instead has *latency* $O(\log N)$, better for very small tensors where latency, not bandwidth, dominates; NCCL switches between them.) This is the same formula derived and benchmarked in [Ch 12](./12_buses_and_interconnects.md), where it showed the same 7B all-reduce running ~300× faster on NVLink than on PCIe.
 
-> **Why the interconnect gates scaling.** The all-reduce time is $2\cdot\text{size}/\text{BW}$ — and `BW` is the GPU-to-GPU link bandwidth, *not* the HBM bandwidth. A 7B model's 14 GB bf16 gradient all-reduce is ~0.06 s over NVLink's ~450 GB/s effective, but ~0.9 s over PCIe's ~16 GB/s. Multiply by thousands of steps and the link, not the GPU, sets your training throughput. The entire point of **NVSwitch** (intra-node) and **InfiniBand** (inter-node) is to make `BW` large enough that comms hides behind compute.
+> **Why the interconnect gates scaling.** The all-reduce time is $2\cdot\text{size}/\text{BW}$ — and `BW` is the GPU-to-GPU link bandwidth, *not* the HBM bandwidth. A 7B model's 14 GB bf16 gradient all-reduce is ~0.06 s over NVLink's ~450 GB/s effective, but ~1.75 s over PCIe Gen3's ~16 GB/s (and still ~0.45 s over PCIe Gen5). Multiply by thousands of steps and the link, not the GPU, sets your training throughput. The entire point of **NVSwitch** (intra-node) and **InfiniBand** (inter-node) is to make `BW` large enough that comms hides behind compute.
 
 ### Overlapping Comms with Compute
 
@@ -391,10 +437,10 @@ def estimate_per_gpu_gb(
     state_bytes = state_params * bytes_per_param
 
     # ZeRO/FSDP additionally shards across the DP group:
-    if zero_stage == 1:    # shard optimizer states (8 of 16 B/p) across DP
-        state_bytes -= state_params * 8 * (1 - 1 / dp)
-    elif zero_stage == 2:  # + gradients (2 B/p)
-        state_bytes -= state_params * 10 * (1 - 1 / dp)
+    if zero_stage == 1:    # shard optimizer states (master + m + v = 12 of 16 B/p) across DP
+        state_bytes -= state_params * 12 * (1 - 1 / dp)
+    elif zero_stage == 2:  # + gradients (2 B/p) -> 14 B/p sharded
+        state_bytes -= state_params * 14 * (1 - 1 / dp)
     elif zero_stage == 3:  # + params (2 B/p) -> all 16 B/p sharded across DP
         state_bytes = state_bytes / dp
 
@@ -403,30 +449,49 @@ def estimate_per_gpu_gb(
                    f"dp={dp} tp={tp} pp={pp} zero={zero_stage}")
 
 # 70B on 64 GPUs, three plans:
-print(estimate_per_gpu_gb(70_000_000_000, dp=64, zero_stage=0))   # plain DDP: ~1140 GB -> NO
-print(estimate_per_gpu_gb(70_000_000_000, dp=64, zero_stage=3))   # FSDP:     ~37 GB  -> fits
-print(estimate_per_gpu_gb(70_000_000_000, dp=8, tp=8, zero_stage=1))  # TP=8 + ZeRO-1
+print(estimate_per_gpu_gb(70_000_000_000, dp=64, zero_stage=0))       # plain DDP: 1140.0 GB -> NO
+print(estimate_per_gpu_gb(70_000_000_000, dp=64, zero_stage=3))       # FSDP:        37.5 GB -> fits
+print(estimate_per_gpu_gb(70_000_000_000, dp=8, tp=8, zero_stage=1))  # TP=8+ZeRO-1: 68.1 GB -> fits
 ```
 
 ---
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Ring all-reduce time barely depends on the number of GPUs, yet large runs still hit a scaling wall. If bandwidth per GPU is constant, what is growing with N that the ring formula leaves out, and which collective would you switch to for the small tensors where it bites?</p>
+</div>
 
 ## How to Choose a Strategy
 
 The decision flows directly from three numbers: model size, GPU memory, and interconnect bandwidth. There is no single right answer — every "it won't fit" has several solutions with different comms costs.
 
-<div class="diagram">
-<div class="diagram-title">Choosing a Parallelism Strategy</div>
-<div class="flow">
-  <div class="flow-node green wide">Fits on 1 GPU (with batch)? → plain DDP. Scale the batch, all-reduce grads. Done.</div>
-  <div class="flow-arrow accent"></div>
-  <div class="flow-node accent wide">States too big but params fit? → FSDP / ZeRO. Climb stages 1→2→3 until it fits. Comms ≈ 1.5× DDP.</div>
-  <div class="flow-arrow accent"></div>
-  <div class="flow-node blue wide">A single layer's matmul is too big / too slow? → add TP within the NVLink node (degree ≤8).</div>
-  <div class="flow-arrow accent"></div>
-  <div class="flow-node purple wide">Model is too deep for one node even with TP? → add PP across nodes; raise micro-batches to shrink the bubble.</div>
-  <div class="flow-arrow accent"></div>
-  <div class="flow-node orange wide">Frontier scale? → 3D: TP(NVLink) × PP(InfiniBand) × DP(outermost). + EP for MoE, + SP for long context.</div>
+<!-- flowchart:parallelism -->
+<div class="flowchart" id="fc-parallelism">
+<div class="fc-title">Which parallelism does this training run need?</div>
+<svg viewBox="0 0 800 500" width="800" role="img" aria-label="Which parallelism does this training run need?">
+<path class="fc-edge" d="M240,40 L240,69"/><polygon class="fc-head" points="240,69 236.2,62 243.8,62"/>
+<path class="fc-edge no" d="M240,123 L240,157"/><polygon class="fc-head no" points="240,157 236.2,150 243.8,150"/><text class="fc-elabel no" x="246" y="137" text-anchor="start">no</text>
+<path class="fc-edge no" d="M240,211 L240,245"/><polygon class="fc-head no" points="240,245 236.2,238 243.8,238"/><text class="fc-elabel no" x="246" y="225" text-anchor="start">no</text>
+<path class="fc-edge no" d="M240,299 L240,339"/><polygon class="fc-head no" points="240,339 236.2,332 243.8,332"/><text class="fc-elabel no" x="246" y="313" text-anchor="start">no</text>
+<path class="fc-edge no" d="M240,381 L240,412 L400,412 L400,430"/><polygon class="fc-head no" points="400,430 396.1,423 403.9,423"/><text class="fc-elabel no" x="246" y="395" text-anchor="start">no</text>
+<path class="fc-edge yes" d="M420,96 L490,96"/><polygon class="fc-head yes" points="490,96 483,99.8 483,92.2"/><text class="fc-elabel yes" x="430" y="90" text-anchor="start">yes</text>
+<path class="fc-edge yes" d="M420,184 L490,184"/><polygon class="fc-head yes" points="490,184 483,187.8 483,180.2"/><text class="fc-elabel yes" x="430" y="178" text-anchor="start">yes</text>
+<path class="fc-edge yes" d="M420,272 L490,272"/><polygon class="fc-head yes" points="490,272 483,275.9 483,268.1"/><text class="fc-elabel yes" x="430" y="266" text-anchor="start">yes</text>
+<path class="fc-edge yes" d="M420,360 L490,360"/><polygon class="fc-head yes" points="490,360 483,363.9 483,356.1"/><text class="fc-elabel yes" x="430" y="354" text-anchor="start">yes</text>
+<g class="fc-node start"><rect x="125" y="8" width="230" height="32" rx="16"/><text x="240" y="28" text-anchor="middle">Train a model on N GPUs</text></g>
+<g class="fc-node decision"><polygon points="60,96 74,69 406,69 420,96 406,123 74,123"/><text x="240" y="94" text-anchor="middle">Does a full replica fit on one GPU?</text><text class="sub" x="240" y="107" text-anchor="middle">≈16 B/param (BF16 + FP32 Adam) + activations</text></g>
+<g class="fc-node decision"><polygon points="60,184 74,157 406,157 420,184 406,211 74,211"/><text x="240" y="182" text-anchor="middle">Does it fit once states are sharded?</text><text class="sub" x="240" y="195" text-anchor="middle">16 B/param ÷ N + activations</text></g>
+<g class="fc-node decision"><polygon points="60,272 74,245 406,245 420,272 406,299 74,299"/><text x="240" y="270" text-anchor="middle">Is one layer (or its activations) too big,</text><text class="sub" x="240" y="283" text-anchor="middle">or is step time too long?</text></g>
+<g class="fc-node decision"><polygon points="60,360 74,339 406,339 420,360 406,381 74,381"/><text x="240" y="364" text-anchor="middle">Mixture-of-experts model?</text></g>
+<g class="fc-node leaf k-green"><rect x="490" y="74" width="260" height="44" rx="6"/><text x="620" y="94" text-anchor="middle">Data parallel (DDP)</text><text class="sub" x="620" y="107" text-anchor="middle">replicate, all-reduce gradients</text></g>
+<g class="fc-node leaf k-cyan"><rect x="490" y="162" width="260" height="44" rx="6"/><text x="620" y="182" text-anchor="middle">FSDP / ZeRO-3</text><text class="sub" x="620" y="195" text-anchor="middle">shard params, grads, optimizer</text></g>
+<g class="fc-node leaf k-purple"><rect x="490" y="250" width="260" height="44" rx="6"/><text x="620" y="270" text-anchor="middle">Tensor + sequence parallel</text><text class="sub" x="620" y="283" text-anchor="middle">split each matmul inside one NVLink domain</text></g>
+<g class="fc-node leaf k-pink"><rect x="490" y="338" width="260" height="44" rx="6"/><text x="620" y="358" text-anchor="middle">Expert parallel</text><text class="sub" x="620" y="371" text-anchor="middle">experts on different GPUs, all-to-all</text></g>
+<g class="fc-node leaf k-orange"><rect x="90" y="430" width="620" height="44" rx="6"/><text x="400" y="450" text-anchor="middle">Combine: TP inside a node × pipeline across nodes × DP/FSDP across replicas</text><text class="sub" x="400" y="463" text-anchor="middle">+ context parallel for long sequences (&quot;3D/4D parallelism&quot;)</text></g>
+</svg>
+<div class="fc-caption">Start at the top and add techniques only when the previous answer is no. Large runs end at the bottom box: tensor parallel inside an NVLink domain, pipeline across nodes, data/FSDP across replicas.</div>
 </div>
+<!-- /flowchart:parallelism -->
 </div>
 
 | Strategy | Splits | Communicates | Collective | Memory saved | Needs |
@@ -485,13 +550,55 @@ Two rules of thumb that fall out of the whole chapter:
 - **Memory forces sharding.** Mixed-precision Adam costs **~16 bytes/param** (fp16 param 2 + fp16 grad 2 + fp32 master 4 + Adam $m,v$ 4+4), plus activations. A **70B model needs ~1.12 TB** of state versus 80 GB/GPU — a 14× gap no dtype trick closes. You *must* shard.
 - **Data parallelism (DDP)** replicates the model, splits the batch, and **all-reduces gradients** (comms ∝ model size); it scales throughput but saves no memory.
 - **ZeRO / FSDP** keep the data-parallel batch split but **shard optimizer states (ZeRO-1), gradients (ZeRO-2), and parameters (ZeRO-3/FSDP)** across GPUs — up to $N\times$ memory savings for ~1.5× the comms, via just-in-time `all-gather` and `reduce-scatter`.
-- **Tensor parallelism (TP)** splits each matmul (column/row partition) and **all-reduces within every layer** — so it must stay inside an **NVLink island (≤8 GPUs)**. **Pipeline parallelism (PP)** splits layers into stages, passes small activations (tolerates inter-node links), but pays a **bubble** of $(P-1)/(M+P-1)$, mitigated by more micro-batches and 1F1B.
+- **Tensor parallelism (TP)** splits each matmul (column/row partition) and **all-reduces within every layer** — so it must stay inside an **NVLink island** (8 GPUs on HGX, 72 on NVL72 racks). **Pipeline parallelism (PP)** splits layers into stages, passes small activations (tolerates inter-node links), but pays a **bubble** of $(P-1)/(M+P-1)$, mitigated by more micro-batches and 1F1B.
 - **Sequence/context parallelism** splits the sequence for long context; **expert parallelism (EP)** routes MoE tokens to expert GPUs via **all-to-all**. Frontier runs combine everything into **3D/n-D parallelism**: TP on NVLink, PP across nodes, DP outermost.
 - **Collectives (all-reduce, all-gather, reduce-scatter, all-to-all, broadcast)** are implemented by **NCCL**. Ring all-reduce costs $\approx 2(N-1)/N \cdot \text{size}/\text{BW}$ — bandwidth-optimal and $N$-independent — so **interconnect bandwidth, not HBM, gates scaling**, and comms must **overlap** compute.
 - **Choose the strategy from the numbers:** model size + GPU memory pick the minimum sharding; interconnect bandwidth picks the arrangement (chatty collectives on fast links). "It won't fit" always has solutions — each with a different, quantifiable comms cost.
 
+## Check Yourself
+
+<details class="check">
+<summary>How much HBM does Adam training of a 13B model need for states alone, and how many 80 GB GPUs is that at minimum?</summary>
+<p>13 × 10⁹ × 16 B = 208 GB, so at least 3 GPUs with full sharding (208 / 80 = 2.6), before activations.</p>
+</details>
+
+<details class="check">
+<summary>With ZeRO-1 on 32 data-parallel GPUs, how many bytes per parameter does each GPU hold?</summary>
+<p>2 (BF16 weights) + 2 (gradients) + 12 / 32 (sharded master, m, v) = 4.375 B/param.</p>
+</details>
+
+<details class="check">
+<summary>A pipeline has 8 stages and 24 micro-batches. What fraction of time is bubble, and how many micro-batches would bring it under 5%?</summary>
+<p>(8 − 1) / (24 + 8 − 1) = 7 / 31 ≈ 22.6%. Under 5% needs 7 / (M + 7) < 0.05, so M > 133: at least 134 micro-batches.</p>
+</details>
+
+<details class="check">
+<summary>Why did DeepSeek-V3 avoid tensor parallelism, and what did it use instead?</summary>
+<p>Its H800s had NVLink limited to 400 GB/s, so a per-layer all-reduce would have cost too much. It used 16-way pipeline parallelism with overlapped communication, 64-way expert parallelism and ZeRO-1 data parallelism.</p>
+</details>
+
+<details class="check">
+<summary>Estimate the ring all-reduce time for 140 GB of BF16 gradients (70B) at 400 GB/s per GPU.</summary>
+<p>≈ 2 × 140 / 400 = 0.7 s per step, which must hide under the backward pass. Sharded data parallel (reduce-scatter instead of all-reduce) halves it to ≈ 0.35 s.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| ZeRO: Memory Optimizations Toward Training Trillion Parameter Models | Rajbhandari et al., 2020 | [arxiv.org/abs/1910.02054](https://arxiv.org/abs/1910.02054) | 16 B/param accounting and ZeRO stages 1–3 |
+| PyTorch FSDP | Zhao et al., 2023 | [arxiv.org/abs/2304.11277](https://arxiv.org/abs/2304.11277) | Fully sharded data parallel in PyTorch |
+| Megatron-LM | Shoeybi et al., 2019 | [arxiv.org/abs/1909.08053](https://arxiv.org/abs/1909.08053) | Column/row tensor parallelism |
+| Efficient Large-Scale Language Model Training on GPU Clusters | Narayanan et al., 2021 | [arxiv.org/abs/2104.04473](https://arxiv.org/abs/2104.04473) | 3D parallelism and interleaved 1F1B |
+| GPipe | Huang et al., 2019 | [arxiv.org/abs/1811.06965](https://arxiv.org/abs/1811.06965) | Pipeline bubble fraction |
+| Ring Attention | Liu, Zaharia & Abbeel, 2023 | [arxiv.org/abs/2310.01889](https://arxiv.org/abs/2310.01889) | Context parallelism by rotating K/V |
+| The Llama 3 Herd of Models | Meta, 2024 | [arxiv.org/abs/2407.21783](https://arxiv.org/abs/2407.21783) | 405B layout: TP8 × PP16 × DP128, failures at scale |
+| DeepSeek-V3 Technical Report | DeepSeek-AI, 2024 | [arxiv.org/abs/2412.19437](https://arxiv.org/abs/2412.19437) | DualPipe, EP64, no TP on H800 |
+| Bringing HPC Techniques to Deep Learning (ring all-reduce) | Gibiansky (Baidu), 2017 | [andrew.gibiansky.com/blog/machine-learning/ba…](https://andrew.gibiansky.com/blog/machine-learning/baidu-allreduce/) | Bandwidth-optimal ring all-reduce |
+| NCCL documentation | NVIDIA | [docs.nvidia.com/deeplearning/nccl/user-guide/…](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/index.html) | Collective semantics and algorithms |
+
 ---
 
-*Next: [Chapter 29 — Memory Hierarchy in Action](./29_memory_hierarchy_in_action.md), where we drop from the cluster back down to a single GPU's HBM and show how the memory hierarchy drives the KV-cache, batching, activation checkpointing, and offloading decisions you make at inference and fine-tuning time.*
+**Next:** [Chapter 29 — Memory Hierarchy in Action](./29_memory_hierarchy_in_action.md) — We drop from the cluster back down to a single GPU's HBM and show how the memory hierarchy drives the KV cache, batching and activation memory.
 
 [← Back to Table of Contents](./README.md)

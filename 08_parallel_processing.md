@@ -73,7 +73,7 @@ Modern high-end CPUs (e.g., AMD Zen 4, Apple M-series) are **4- to 8-way supersc
 
 **Out-of-order execution** decouples the program's *nominal* sequence from the *actual* execution sequence. If instruction 10 is stalled waiting for memory, instructions 11–20 that are independent proceed. The hardware maintains correctness by committing (retiring) results in program order via the reorder buffer.
 
-OoO requires **register renaming** (physical registers far outnumber architectural ones, eliminating false dependencies) and a **reservation station** (instructions wait there until operands are ready). A modern CPU core spends roughly half its transistor budget on these OoO structures.
+OoO requires **register renaming** (physical registers far outnumber architectural ones, eliminating false dependencies) and a **reservation station** (instructions wait there until operands are ready). These out-of-order structures (rename tables, reorder buffer, schedulers) take a large share of a core's area and power once the caches are set aside.
 
 ### Branch Prediction and Speculation
 
@@ -109,8 +109,8 @@ A single `VADDPS` (vector add single-precision) adds all 8 pairs simultaneously.
 | Extension | Width | FP32 lanes | FP16 lanes | Notes |
 |-----------|------:|----------:|----------:|-------|
 | SSE2 | 128-bit | 4 | — | Pentium 4 era (2001) |
-| AVX/AVX2 | 256-bit | 8 | — | Haswell (2013) |
-| AVX-512 | 512-bit | 16 | 32 | Skylake-X (2017), FP16 via VNNI |
+| AVX / AVX2 | 256-bit | 8 | — | Sandy Bridge (2011) / Haswell (2013) |
+| AVX-512 | 512-bit | 16 | 32 | Skylake-SP (2017); FP16 arithmetic via AVX512-FP16 (Sapphire Rapids, 2023) |
 | ARM NEON | 128-bit | 4 | 8 | ARMv7+ / all modern ARM |
 | ARM SVE2 | 128–2048-bit | variable | variable | Scalable vector extension |
 
@@ -149,13 +149,13 @@ The lesson: "vectorize your operations" is not just a style tip — it is **swit
 
 Where SIMD parallelizes a *single* instruction stream over data, **multicore** processors replicate the entire execution pipeline — multiple independent cores, each with its own registers, L1/L2 caches, OoO engine, and branch predictor — on one die.
 
-A modern CPU die might contain **8–192 cores** (e.g., AMD EPYC Genoa: 96 cores @ 5 nm, 400 W TDP). Each core runs its own independent thread or process. True parallelism: two cores can physically execute different instructions at the same cycle.
+A modern CPU die (or package of chiplets) might contain **8–192 cores** (e.g., AMD EPYC 9965 "Turin": 192 Zen 5c cores, 500 W TDP). Each core runs its own independent thread or process. True parallelism: two cores can physically execute different instructions at the same cycle.
 
 ### SMT / Hyperthreading
 
 **Simultaneous Multithreading (SMT)**, branded by Intel as **Hyperthreading**, runs **two (or more) hardware threads** on a *single* physical core. The idea: one thread may be stalled on a cache miss or a long-latency instruction; while it waits, the OoO engine's spare execution units can execute instructions from the *other* thread.
 
-Hardware cost: ~15–30% die area increase for ~15–40% throughput increase on workloads with independent threads. The two threads *share* the L1/L2 caches and execution units — so they can interfere with each other under high pressure.
+Hardware cost: only a few percent of core area (Intel quoted under 5 % for the first Hyper-Threading cores) for a ~15–30 % throughput gain on workloads with independent threads. The two threads *share* the L1/L2 caches and execution units, so they can interfere with each other under high pressure.
 
 For ML inference servers, SMT helps when request handling is I/O-bound; for sustained compute-bound workloads (e.g., PyTorch CPU inference), disabling HT can actually improve throughput by giving each physical thread fuller cache access.
 
@@ -195,17 +195,17 @@ SIMD and SIMT both execute one instruction over many data elements — but they 
 </div>
 </div>
 
-**SIMT** (Single Instruction, Multiple Threads) is NVIDIA's term (AMD uses "wavefront" of 64 threads; the concept is the same). You write a GPU **kernel** as if each thread runs independently — it has its own `threadIdx`, its own registers, its own control flow. The hardware then groups consecutive threads into **warps of 32** and executes them in SIMD fashion on the actual hardware lanes.
+**SIMT** (Single Instruction, Multiple Threads) is NVIDIA's term (AMD calls the group a "wavefront": 64 threads on CDNA datacenter GPUs, 32 or 64 on RDNA; the concept is the same). You write a GPU **kernel** as if each thread runs independently — it has its own `threadIdx`, its own registers, its own control flow. The hardware then groups consecutive threads into **warps of 32** and executes them in SIMD fashion on the actual hardware lanes.
 
 ### Warps, Wavefronts, and the SM
 
 An NVIDIA GPU has **Streaming Multiprocessors (SMs)** (AMD calls them **Compute Units, CUs**). Each SM contains:
-- **32 CUDA cores** (FP32 ALUs) in older architectures, **128 in Ampere/Hopper**
+- **FP32 lanes ("CUDA cores")**: 64 per SM in A100, 128 in H100 and Blackwell
 - **Warp schedulers** (4 per SM in Hopper) — each schedules a 32-thread warp each cycle
-- **Register file** — ~64 KB per SM; each thread gets a slice (e.g., 32–256 registers per thread)
+- **Register file** — 256 KB per SM (65,536 × 32-bit registers); each thread gets a slice (up to 255 registers per thread)
 - **Shared memory / L1 cache** — 128–256 KB per SM in Hopper
 
-An H100 SXM5 has **132 SMs** × 128 FP32 CUDA cores = **16,896 FP32 CUDA cores**, clocked at ~1.98 GHz peak. That is ~67 TFLOP/s FP32 — but the tensor cores push **989 TFLOP/s** for FP16/BF16 with sparsity.
+An H100 SXM5 has **132 SMs** × 128 FP32 CUDA cores = **16,896 FP32 CUDA cores**, clocked at ~1.98 GHz peak. That is ~67 TFLOP/s FP32 — but the tensor cores push **989 TFLOP/s** of dense FP16/BF16 (twice that with 2:4 sparsity).
 
 ### Warp Divergence — the Key SIMT Pitfall
 
@@ -222,7 +222,7 @@ else:
 # Both branches execute serially — throughput is halved compared to no branch
 ```
 
-In ML terms: activation functions with data-dependent branches (e.g., `if x > 0` in ReLU) are fine — every element in a batch sees the same branch direction most of the time. But **sparse operations** with data-dependent access patterns can hurt — this is why structured sparsity (2:4) is hardware-friendly while unstructured sparsity is not (see [Chapter 26](./26_sparsity_hardware_view.md)).
+In ML terms: ReLU and masking are *not* divergent branches at all: the compiler emits a branch-free `max` or select instruction, so all 32 threads run the same instruction whatever the signs. Divergence bites when the *amount* of work depends on the data (early exits, per-token routing, variable-length loops), and **sparse operations** with data-dependent access patterns hurt for a related reason: this is why structured sparsity (2:4) is hardware-friendly while unstructured sparsity is not (see [Chapter 26](./26_sparsity_hardware_view.md)).
 
 ---
 
@@ -276,10 +276,10 @@ $$S_{\text{Amdahl}}(N) = \frac{1}{(1-P) + \dfrac{P}{N}}$$
 
 | Serial fraction $(1-P)$ | Max speedup (any $N$) | 8 GPUs | 64 GPUs | 512 GPUs |
 |:---:|:---:|:---:|:---:|:---:|
-| 50% | 2× | 1.78× | 1.97× | 2.00× |
-| 10% | 10× | 4.71× | 8.77× | 9.83× |
-| 1% | 100× | 7.75× | 39.0× | 84.3× |
-| 0.1% | 1,000× | 7.94× | 60.6× | 338× |
+| 50% | 2× | 1.78× | 2.0× | 2.0× |
+| 10% | 10× | 4.71× | 8.8× | 9.8× |
+| 1% | 100× | 7.48× | 39.3× | 83.8× |
+| 0.1% | 1,000× | 7.94× | 60.2× | 338.8× |
 
 > A workload with even **5% serial overhead** cannot exceed **20× speedup** no matter how many processors you throw at it.
 
@@ -309,7 +309,7 @@ $$S_{\text{Gustafson}}(N) = (1 - P) + N \cdot P$$
 
 This grows **linearly** with $N$. The serial overhead is now amortized over a much larger total workload.
 
-**Intuition:** A research team with 4 GPUs trains a 7B model in 2 days. A team with 256 GPUs doesn't train the *same* 7B model in $2/64 = 1.8$ hours — they train a **70B model** in 2 days. The parallel portion (forward/backward compute) scales with the model; the serial portion (checkpointing, logging, evaluation) doesn't. Gustafson's Law says the *effective speedup on the scaled problem* is nearly linear in the number of GPUs.
+**Intuition:** A research team with 4 GPUs trains a 7B model in 2 days. A team with 256 GPUs doesn't train the *same* 7B model in $48/64 = 0.75$ hours — they train a **70B model** in 2 days. The parallel portion (forward/backward compute) scales with the model; the serial portion (checkpointing, logging, evaluation) doesn't. Gustafson's Law says the *effective speedup on the scaled problem* is nearly linear in the number of GPUs.
 
 ```python
 def gustafson(P: float, N: int) -> float:
@@ -326,9 +326,9 @@ for N in [2, 4, 8, 16, 32, 64, 128, 256, 512]:
 | $N$ | Amdahl ($P=0.99$) | Gustafson ($P=0.99$) |
 |:---:|:---:|:---:|
 | 8 | 7.5× | 7.9× |
-| 64 | 39× | 63.4× |
-| 512 | 84× | 507× |
-| 4096 | 99× | 4059× |
+| 64 | 39.3× | 63.4× |
+| 512 | 83.8× | 506.9× |
+| 4096 | 97.6× | 4055.1× |
 
 **The strong- vs weak-scaling insight:** Amdahl governs "how fast can I do *this exact training run*?" Gustafson governs "how big a model/dataset can I train in a *given wall-clock time*?" Both matter. In practice, LLM research is dominated by Gustafson-style scaling — you use more GPUs to tackle larger problems, not (just) to speed up existing ones.
 
@@ -361,6 +361,11 @@ In ML: non-determinism in multi-GPU training (e.g., gradient accumulation with u
 
 ---
 
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Amdahl says a 1 % serial fraction caps you at 100×, yet frontier models train on 100,000 GPUs. Which parts of a training step have to be serial, which only look serial until you overlap or shard them, and which does Gustafson quietly assume away?</p>
+</div>
+
 ## Why This Matters for Model Optimization
 
 <div class="diagram">
@@ -368,11 +373,11 @@ In ML: non-determinism in multi-GPU training (e.g., gradient accumulation with u
 <div class="diagram-grid cols-3">
   <div class="diagram-card accent">
     <div class="card-title">Bit-level</div>
-    <div class="card-desc">INT8/INT4 quantization packs more ops per cycle. A 256-bit SIMD lane does 32× INT8 MACs vs 8× FP32. More throughput, not just less memory.</div>
+    <div class="card-desc">INT8/INT4 quantization packs more ops per cycle. A 256-bit SIMD register does 32 INT8 MACs per instruction vs 8 FP32. More throughput, not just less memory.</div>
   </div>
   <div class="diagram-card green">
     <div class="card-title">ILP / Superscalar</div>
-    <div class="card-desc">CPUs extract parallelism within a kernel. Flash Attention's fused kernel reduces memory-level hazards and makes better use of out-of-order dispatch.</div>
+    <div class="card-desc">CPU cores find independent instructions automatically (out-of-order). GPU cores issue in order, so fast GPU kernels expose ILP explicitly: each thread computes several independent outputs so the pipelines stay full.</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">SIMD</div>
@@ -384,7 +389,7 @@ In ML: non-determinism in multi-GPU training (e.g., gradient accumulation with u
   </div>
   <div class="diagram-card orange">
     <div class="card-title">Amdahl's Law</div>
-    <div class="card-desc">Explains why adding GPUs to data-parallel training yields diminishing returns. The AllReduce (serial bottleneck) grows with the gradient tensor size vs bandwidth.</div>
+    <div class="card-desc">Explains why adding GPUs to data-parallel training yields diminishing returns: the part of gradient communication that cannot be overlapped with compute acts as the serial fraction, and it does not shrink as you add GPUs.</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">Gustafson's Law</div>
@@ -395,7 +400,7 @@ In ML: non-determinism in multi-GPU training (e.g., gradient accumulation with u
 
 **Deep learning is "embarrassingly parallel" at the right granularity.** A single matrix multiply $C = AB$ where $A \in \mathbb{R}^{M \times K}$ and $B \in \mathbb{R}^{K \times N}$ produces $M \times N$ output elements. Each output element $C_{ij} = \sum_k A_{ik} B_{kj}$ is *independent* of all others (given $A$ and $B$). There are no data dependencies between output elements. With $M=4096$, $N=4096$, that is **~16.7 million** completely independent dot products — exactly what a GPU's 16,896 CUDA cores (in H100) are built to compute simultaneously.
 
-The serial bottleneck in multi-GPU training is **gradient synchronization** — AllReduce over the parameter vector. A 70B-parameter model in BF16 has $70 \times 10^9 \times 2 = 140$ GB of gradients to reduce per step. At NVLink's 900 GB/s bidirectional bandwidth on an 8-GPU DGX H100 node, the ring-AllReduce takes ~0.16 seconds per 200 GB (effective ~1.25 GB/s per GPU for 8-GPU ring) — easily 10–40% of step time for large models. This is the Amdahl serial fraction that [Chapter 12](./12_buses_and_interconnects.md) and [Chapter 28](./28_multi_gpu_and_distributed_training.md) address directly.
+The serial bottleneck in multi-GPU training is **gradient synchronization** — AllReduce over the parameter vector. A 70B-parameter model in BF16 has $70 \times 10^9 \times 2 = 140$ GB of gradients per step. A ring AllReduce moves $2\frac{N-1}{N}$ times that through each GPU's link; on an 8-GPU H100 node (450 GB/s per direction per GPU over NVLink) that is $2 \times \frac{7}{8} \times 140 / 450 \approx 0.54$ s per step before any overlap with the backward pass. Real runs shard the model (FSDP, tensor parallelism) and overlap communication with compute, which is exactly what [Chapter 12](./12_buses_and_interconnects.md) and [Chapter 28](./28_multi_gpu_and_distributed_training.md) address.
 
 ---
 
@@ -409,8 +414,46 @@ The serial bottleneck in multi-GPU training is **gradient synchronization** — 
 - **Amdahl's Law** ($S = 1/((1-P) + P/N)$) shows that even a small serial fraction caps speedup — explaining why communication overhead kills GPU-scaling efficiency.
 - **Gustafson's Law** ($S = (1-P) + NP$) shows that scaling the problem with the processor count allows near-linear speedup — explaining how LLM research scales to trillion parameters.
 
+## Check Yourself
+
+<details class="check">
+<summary>A training step is 90 % parallelizable. What is the speedup on 16 GPUs, and the ceiling on infinitely many?</summary>
+<p>Amdahl: 1 / (0.1 + 0.9/16) = 1 / 0.15625 = 6.4×. The ceiling is 1 / 0.1 = 10×, reached only asymptotically.</p>
+</details>
+
+<details class="check">
+<summary>Why does ReLU not cause warp divergence on a GPU?</summary>
+<p>It compiles to a branch-free <code>max(x, 0)</code> (or a predicated select), so every thread in the warp executes the same instruction regardless of the sign of its value. Divergence requires threads to take different control-flow paths.</p>
+</details>
+
+<details class="check">
+<summary>What is the difference between SIMD and SIMT from the programmer's point of view?</summary>
+<p>With SIMD you write one instruction stream that operates on explicit vector registers and handle masks and tails yourself. With SIMT you write scalar code for one thread; the hardware groups 32 threads into a warp and handles masking when they diverge.</p>
+</details>
+
+<details class="check">
+<summary>Why did per-core ILP stop growing while core counts kept rising?</summary>
+<p>Real code has dependency chains, branches and cache misses that limit how many independent instructions exist in any window; going wider or deeper costs disproportionate area and power for little gain. Spending the same transistors on more cores or wider SIMD gives more throughput per watt for parallel work.</p>
+</details>
+
+<details class="check">
+<summary>How long does a ring all-reduce of 140 GB take on 8 GPUs with 450 GB/s per direction, and how do real systems avoid paying it every step?</summary>
+<p>About 2 × (7/8) × 140 / 450 ≈ 0.54 s. Systems overlap the all-reduce with the backward pass bucket by bucket, shard gradients and optimizer state (FSDP/ZeRO), and use in-network reduction (NVLink SHARP) to cut the bytes each GPU must move.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Validity of the single processor approach to achieving large scale computing capabilities | G. Amdahl, AFIPS 1967 | [doi.org/10.1145/1465482.1465560](https://doi.org/10.1145/1465482.1465560) | Amdahl's law |
+| Reevaluating Amdahl's Law | J. Gustafson, CACM 1988 | [doi.org/10.1145/42411.42415](https://doi.org/10.1145/42411.42415) | Scaled (weak-scaling) speedup |
+| Some Computer Organizations and Their Effectiveness | M. Flynn, IEEE TC 1972 | [doi.org/10.1109/TC.1972.5009071](https://doi.org/10.1109/TC.1972.5009071) | Flynn's taxonomy (SISD/SIMD/MISD/MIMD) |
+| NVIDIA H100 Tensor Core GPU Architecture | NVIDIA, 2022 | [resources.nvidia.com/en-us-tensor-core/gtc22-…](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper) | SM resources: register file, FP32 lanes, warp schedulers |
+| Hyper-Threading Technology Architecture and Microarchitecture | D. Marr et al., Intel Technology Journal 2002 | [intel.com/content/dam/www/public/us/en/docume…](https://www.intel.com/content/dam/www/public/us/en/documents/research/2002-vol06-iss-1-intel-technology-journal.pdf) | SMT cost (<5 % area) and benefit |
+| Bandwidth Optimal All-reduce Algorithms for Clusters of Workstations | P. Patarasuk, X. Yuan, JPDC 2009 | [doi.org/10.1016/j.jpdc.2008.09.002](https://doi.org/10.1016/j.jpdc.2008.09.002) | The 2(N−1)/N ring all-reduce cost |
+
 ---
 
-*Next: [Chapter 9 — Memory Types & Technologies](./09_memory_types.md), where we tour the full memory hierarchy — registers through HBM — and learn why memory bandwidth, not FLOPs, is usually what you're actually waiting on.*
+**Next:** [Chapter 9 — Memory Types & Technologies](./09_memory_types.md) — We tour the full memory hierarchy — registers through HBM — and learn why memory bandwidth, not FLOPs, is usually what you're actually waiting on.
 
 [← Back to Table of Contents](./README.md)

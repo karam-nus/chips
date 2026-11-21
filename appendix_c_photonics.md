@@ -32,8 +32,9 @@ Typical energy costs for electrical signaling:
 | On-chip (Cu, within die) | ~0.05–0.2 pJ/bit | mm scale |
 | Chip-to-chip (package, HBM microbumps) | ~0.5–1 pJ/bit | ~10–20 mm |
 | PCIe Gen5 (off-package) | ~5–10 pJ/bit | ~30–50 cm |
-| 100G Ethernet / backplane copper | ~20–40 pJ/bit | ~1–2 m |
-| NVLink 4.0 (NVIDIA H100) | ~3–5 pJ/bit (integrated) | module-to-module |
+| Long-reach 112G/224G SerDes over backplane or copper cable | ~5–10 pJ/bit (more with retimers) | ~1–2 m |
+| NVLink (H100/B200 class, copper in the rack) | a few pJ/bit (estimate; not published) | within a rack |
+| 800G pluggable optical module | ~18–20 pJ/bit (15–16 W) | 100 m–2 km |
 
 As link rates climb (100G → 400G → 800G → 1.6T per lane), driving increasingly capacitive traces at increasingly high frequencies costs more energy. A 51.2 Tb/s switch ASIC (like NVIDIA Spectrum-X or Broadcom Tomahawk 5) needs ~35–50 TB/s of total I/O bandwidth; delivering that electrically over long reach consumes a substantial fraction of the chip's total power budget in SerDes alone.
 
@@ -41,7 +42,7 @@ The **reach** problem is equally limiting: at 112 Gbaud (the current leading edg
 
 ### What That Means for Multi-GPU Clusters
 
-A cluster of 10,000 H100s (roughly what Meta's AI Research SuperCluster and NVIDIA's Eos system look like) requires every GPU to be able to exchange gradients and activations with many others. The interconnect from GPU to top-of-rack switch, to spine switch, and across to another GPU's rack spans 1–100 meters. Electrical signaling over that distance, at 800G+ per port, requires optics. The question is *where* the electrical-to-optical conversion happens — and that is the co-packaged optics story.
+A cluster of 10,000–100,000+ GPUs (NVIDIA's Eos had 10,752 H100s; Meta built two 24,576-GPU H100 clusters in 2024; xAI's Colossus started at 100,000 H100s the same year) requires every GPU to be able to exchange gradients and activations with many others. The interconnect from GPU to top-of-rack switch, to spine switch, and across to another GPU's rack spans 1–100 meters. Electrical signaling over that distance, at 800G+ per port, requires optics. The question is *where* the electrical-to-optical conversion happens — and that is the co-packaged optics story.
 
 For deep background on multi-GPU topologies and parallelism strategies, see [Chapter 12](./12_buses_and_interconnects.md) and [Chapter 28](./28_multi_gpu_and_distributed_training.md).
 
@@ -83,7 +84,7 @@ An optical link needs four elements: a light source, a modulator, a waveguide, a
 - **Wafer bonding**: direct oxide bonding of InP films to Si, then processing the laser structure aligned to Si waveguides (IIIV-Lab, various academic groups)
 - **Epitaxial growth** of GeSn or GaAs on Si: active research, not yet in production for lasers
 
-The absence of a manufacturable on-chip silicon laser is the primary fabrication challenge for fully integrated silicon photonics. It is being addressed incrementally but is not solved for high-volume production as of 2025.
+The absence of a manufacturable on-chip silicon laser is the primary fabrication challenge for fully integrated silicon photonics. It is being addressed incrementally but is not solved for high-volume production as of 2026; CPO products use external laser modules that can be replaced from the front panel.
 
 ---
 
@@ -129,20 +130,21 @@ The fundamental limitation: **the electrical reach from ASIC to module cage is ~
 
 Key numbers for CPO at 800G (approximate, 2024–2025):
 
-| Metric | Pluggable OSFP 800G | CPO 800G Engine |
+| Metric | Pluggable optics | Co-packaged optics |
 |--------|:-------------------:|:--------------:|
-| Energy per bit (SerDes + optics) | ~18–25 pJ/bit | ~6–10 pJ/bit |
-| Bandwidth density (Tb/s per mm² of package edge) | ~5–8 Tb/s/mm | ~15–25 Tb/s/mm |
-| Latency (electrical to optical) | ~100–200 ps | ~20–50 ps |
-| Module replaceability | Field-replaceable | Not field-replaceable (fixed) |
+| Energy per bit (SerDes + optics) | ~18–20 pJ/bit | ~5–7 pJ/bit |
+| Power per 1.6 Tb/s port (NVIDIA's figures) | ~30 W | ~9 W |
+| Electrical path ASIC → optics | 10–20 cm of PCB plus connector | a few mm inside the package |
+| Serviceability | Field-replaceable module | Optics fixed; external lasers replaceable |
 
 **Who is building CPO:**
 
-- **Intel** demonstrated CPO switch integration at OFC 2021 and has since productized optical engines; Intel's 12.8T CPO switch uses Intel Silicon Photonics engines bonded to the switch die.
-- **Broadcom** announced CPO for Tomahawk 5+ class switches (51.2T and beyond), with CPO optical engines from partners.
-- **NVIDIA** Spectrum-4 and future Spectrum-X switches are designed with CPO paths; NVIDIA acquired Mellanox (networking) and has invested in photonics integration.
-- **Ayar Labs** is the leading startup in this space: their **TeraPHY** optical chiplet provides ~2 Tb/s bidirectional bandwidth per chiplet using a monolithically integrated silicon photonics process, designed to sit in the package alongside a compute or networking die. Ayar has partnership agreements with Intel (using Intel's co-investment in their technology) and has shown CPO demos with DARPA and hyperscaler customers.
-- **Marvell** (COLORZ II, LightPath) and **Ranovus** are also in the CPO space, targeting 1.6T+ switches.
+- **Broadcom** ships Bailly, a 51.2 Tb/s Tomahawk 5 switch with co-packaged optics, in volume, and its 102.4 Tb/s Tomahawk 6 "Davisson" CPO switch is sampling.
+- **NVIDIA** announced Quantum-X Photonics (InfiniBand, 144 × 800G ports) and Spectrum-X Photonics (Ethernet, up to 102.4 Tb/s) switches in March 2025, built with TSMC's COUPE optical engines; InfiniBand parts ship from early 2026 and Ethernet in the second half. NVIDIA claims 3.5× better power efficiency than pluggables.
+- **Intel** demonstrated CPO switches and optical compute interconnect chiplets, but sold its pluggable silicon-photonics transceiver business to Jabil in 2023.
+- **Ayar Labs** builds **TeraPHY**, an optical I/O chiplet (with a UCIe interface since 2025) and an external multi-wavelength laser (SuperNova), designed to sit in the package beside a compute or networking die.
+- **Lightmatter** builds **Passage**, a photonic interposer and interconnect (M1000, 2025) that stacks compute dies on an optical substrate.
+- **Marvell**, **Ranovus** and others target 1.6T+ optical engines.
 
 ### Optical I/O for Compute Dies
 
@@ -151,7 +153,7 @@ The natural extension of CPO for switches is **optical I/O for GPU/accelerator p
 - Higher aggregate bandwidth per package edge
 - Reduced power for inter-GPU collective operations (all-reduce, all-gather — the bottleneck in tensor-parallel training, [Chapter 28](./28_multi_gpu_and_distributed_training.md))
 
-Ayar Labs' TeraPHY is specifically targeted at this use case: a companion optical chiplet that plugs into a GPU or TPU package and provides optical I/O. As of 2025, this is in customer sampling/pre-production rather than volume deployment. The technical challenge is that GPU-to-GPU bandwidth requirements (NVLink 4.0 at 900 GB/s total between two H100s) demand a very large number of optical lanes, each with its own modulator, detector, and laser tap — integrating this reliably at scale is non-trivial.
+Ayar Labs' TeraPHY is specifically targeted at this use case: a companion optical chiplet that plugs into a GPU or TPU package and provides optical I/O. As of 2026, this is in customer sampling/pre-production rather than volume deployment. The technical challenge is that GPU-to-GPU bandwidth requirements (NVLink 4.0 at 900 GB/s total between two H100s) demand a very large number of optical lanes, each with its own modulator, detector, and laser tap — integrating this reliably at scale is non-trivial.
 
 ---
 
@@ -183,9 +185,9 @@ By cascading MZIs in a **mesh** (a 2D grid of N×N interferometers), you can imp
 
 The energy appeal: a passive MZI mesh performs a complex multiply-accumulate using only the phase of light — no switching transistors, no charge movement. The theoretical lower bound is simply the photon energy, roughly $10^{-19}$ J/operation at 1 µW input power — orders of magnitude below the ~0.1–1 pJ/MAC of a digital tensor core.
 
-**Lightmatter** (Cambridge, MA) is the most prominent company commercializing this approach. Their **Passage** silicon photonics chip is a 4×4 Tb/s photonic interconnect fabric, but their core technology thesis is the **Envise** photonic compute chip: a photonic matrix unit embedded in a hybrid photonic-electronic chip.
+**Lightmatter** (Boston) was the most prominent company commercializing this approach with its **Envise** photonic compute chip, a photonic matrix unit in a hybrid photonic-electronic package. Tellingly, its commercial emphasis has since shifted to **Passage**, photonic *interconnect*, which is where the near-term value in AI hardware is.
 
-**Luminous Computing**, **QuiX Quantum**, and various academic groups (MIT, Stanford, Caltech) have demonstrated photonic neural network inference on small models.
+Academic groups (MIT, Stanford, Caltech, Oxford and Münster among them) have demonstrated photonic neural-network inference on small models.
 
 ### The Honest Limits
 
@@ -229,11 +231,11 @@ Optical compute faces several fundamental challenges that must be understood cle
 
 ### What Is Actually Real Today
 
-Being precise about the state of the technology in 2025:
+Being precise about the state of the technology in late 2026:
 
-**Datacenter networking (optical interconnect)**: Mature, deployed at scale. 400G/800G pluggable optics are standard in every hyperscale datacenter. CPO is transitioning from sampling to volume production (Broadcom, Intel, Marvell targeting 2025–2027 volume for 51.2T+ switches). This is real and consequential for AI clusters.
+**Datacenter networking (optical interconnect)**: Mature, deployed at scale. 400G/800G pluggable optics are standard in every hyperscale datacenter. CPO switches are in volume from Broadcom and shipping from NVIDIA in 2026. This is real and consequential for AI clusters.
 
-**Optical I/O for compute packages (Ayar Labs, etc.)**: Pre-production / early deployment for specific use cases (government, research clusters). Volume commercial deployment for AI accelerators is 2–3 years out as of 2025.
+**Optical I/O for compute packages (Ayar Labs, etc.)**: Pre-production / early deployment for specific use cases (government, research clusters). Volume deployment on AI accelerators has not happened yet; NVLink stays copper inside the rack through at least Rubin Ultra (2027).
 
 **Photonic compute chips (Lightmatter Envise, etc.)**: Research and early commercial stage. Lightmatter has demonstrated working photonic compute and has a commercial product strategy, but comparison benchmarks to H100-class ASICs at equivalent power have not been shown at scale. The technology is credible in principle, but the engineering challenges (nonlinearity, ADC/DAC, precision) mean it is not competitive with leading digital ASICs for training large models today.
 
@@ -260,7 +262,7 @@ def allreduce_energy(
     param_bytes: int,
     hops: int = 3,
     pJ_per_bit_pluggable: float = 20.0,   # ~20 pJ/bit for 800G pluggable at switch
-    pJ_per_bit_cpo: float = 7.0,           # ~7 pJ/bit for CPO equivalent
+    pJ_per_bit_cpo: float = 7.0,           # ~5-7 pJ/bit for CPO equivalent
 ) -> dict:
     """Estimate energy consumed in all-reduce communication for one gradient step."""
     bits = param_bytes * 8
@@ -276,7 +278,7 @@ def allreduce_energy(
         "savings_pct":  (1 - pJ_per_bit_cpo / pJ_per_bit_pluggable) * 100,
     }
 
-# 1024 GPUs, Llama-3-70B gradient (~140 GB FP32 grads), 3 switch hops
+# 1024 GPUs, Llama-3-70B gradient (~140 GB of BF16 grads), 3 switch hops
 result = allreduce_energy(
     n_gpus=1024,
     param_bytes=140 * 1024**3,
@@ -285,13 +287,13 @@ result = allreduce_energy(
 print(f"Pluggable: {result['pluggable_kJ']:.1f} kJ per gradient step")
 print(f"CPO:       {result['cpo_kJ']:.1f} kJ per gradient step")
 print(f"Energy savings: {result['savings_pct']:.0f}%")
-# Pluggable: ~9,400 kJ per gradient step
-# CPO:       ~3,300 kJ per gradient step
-# Energy savings: ~65%
+# Pluggable: 147.8 kJ per gradient step
+# CPO:       51.7 kJ per gradient step
+# Energy savings: 65%
 # (Illustrative only — real figures depend on topology, link efficiency, RDMA stack)
 ```
 
-> This illustrative calculation shows the scale of energy at stake: all-reduce communication at hyperscale consumes meaningful fractions of total cluster energy. CPO's ~50–70 % energy reduction in the switching fabric is consequential — not just for cost, but for the power-delivery and cooling infrastructure of a datacenter.
+> Put the result next to the compute: 1,024 GPUs at 700 W running a 10-second step use about 7,200 kJ, so the all-reduce's optics account for roughly 2% of the step's energy, and CPO saves about 1.3%. The bigger wins from CPO are power per port (which caps how many links a switch can carry), reliability and density. That is the honest version of the photonics case: optics matter because they set how big and how well-connected a cluster can be within a power budget, not because the bits themselves are expensive.
 
 ---
 
@@ -303,11 +305,16 @@ Several longer-range photonics directions are worth tracking:
 
 **Photonic-electronic neural networks**: hybrid architectures where the linear (matrix multiply) portion uses photonics and the nonlinear portion uses electronics, communicating via very short O/E/O conversions. The energy advantage is real only if the O/E/O overhead is smaller than the energy saved on the linear portion — this requires very high-throughput optical compute units and very efficient ADC/DAC, neither of which is mature.
 
-**All-optical networks**: datacenter networks built entirely on optical switching (without electrical switch ASICs), using optical circuit switches (OCS) or optical packet switches. Google's Jupiter network has used some optical circuit switching; all-optical packet switching at high speed remains research-level.
+**All-optical networks**: datacenter networks built entirely on optical switching (without electrical switch ASICs), using optical circuit switches (OCS) or optical packet switches. Google's Jupiter data-centre network and its TPU pods (since TPU v4) use MEMS-based optical circuit switches ("Apollo") to reconfigure topology; all-optical packet switching at high speed remains research-level.
 
 **Mid-board optics and on-board optics**: intermediate stages between fully pluggable and fully co-packaged. Mid-board optics (MBO) moves the optical engine onto the PCB close to the ASIC, reducing electrical reach without the full packaging complexity of CPO. This is commercially available today from Inphi/Marvell, Intel, and others.
 
 ---
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>NVLink has stayed copper while the scale-out network goes optical. What would have to be true about laser reliability, cost per port and latency before you would trust optics for the per-layer all-reduce of tensor parallelism?</p>
+</div>
 
 ## Why This Matters for Model Optimization
 
@@ -315,11 +322,11 @@ Interconnect is the scaling bottleneck you cannot optimize away with quantizatio
 
 **All-reduce is a hard dependency**: In data-parallel training, the all-reduce operation must complete before the next forward pass begins (in synchronous training). No amount of compute efficiency reduces this latency — it is determined by bandwidth and topology. Optical interconnect addresses this directly.
 
-**Tensor parallelism activations**: In tensor-parallel Transformers (splitting attention heads across GPUs), all-to-all communication of activations between layers is in the critical path. Higher optical switch bandwidth density allows larger tensor-parallel groups with acceptable communication overhead.
+**Tensor and expert parallelism**: tensor parallelism puts an all-reduce of activations in every layer's critical path, and MoE expert parallelism adds all-to-all traffic. Both stay inside the copper NVLink domain today; optics would let that domain grow beyond a rack.
 
 **Pipeline parallelism bubble**: Pipeline bubbles (idle time waiting for micro-batches to move between pipeline stages) scale with inter-stage latency. CPO's lower serialization latency shrinks these bubbles slightly.
 
-**Cluster power budgets**: A datacenter running 10,000 H100s at 700 W each = 7 MW of compute power. The networking infrastructure adds another 15–25 %. CPO's efficiency improvement translates directly to either more GPUs per facility or reduced cooling costs — both of which affect the economics of your training run.
+**Cluster power budgets**: A datacenter running 10,000 H100s at 700 W each = 7 MW of GPU power. Switches and optics typically add on the order of 5–15 %, a share that grows with cluster size and link speed. CPO's efficiency improvement translates directly to either more GPUs per facility or reduced cooling costs — both of which affect the economics of your training run.
 
 For the broader trajectory of interconnect, packaging, and how they shape next-generation cluster design, see [Chapter 12](./12_buses_and_interconnects.md), [Chapter 35](./35_where_the_industry_is_headed.md), and [Appendix E](./appendix_e_packaging.md).
 
@@ -327,16 +334,56 @@ For the broader trajectory of interconnect, packaging, and how they shape next-g
 
 ## Key Takeaways
 
-- Electrical signaling consumes ~5–40 pJ/bit at datacenter distances and hits a reach wall at current bandwidths; optical interconnect at ~1–3 pJ/bit over unlimited-distance fiber is the solution for GPU-to-GPU and rack-to-rack communication.
+- Electrical signaling consumes ~5–40 pJ/bit at datacenter distances and hits a reach wall at current bandwidths; optical links cost ~18–20 pJ/bit as pluggable modules and ~5–7 pJ/bit co-packaged, with reach no copper can match, which makes them the solution for rack-to-rack and, eventually, larger GPU-to-GPU domains.
 - Silicon photonics builds waveguides, modulators (ring resonators), and photodetectors (Ge on Si) in CMOS-compatible processes; **lasers must be off-chip (III-V material)** because silicon's indirect bandgap prevents efficient light emission — this is the primary integration challenge.
-- **Co-packaged optics (CPO)** eliminates the ~8 cm PCB trace from ASIC to pluggable module, reducing SerDes power by ~50–70 % and increasing bandwidth density by ~3×; Broadcom, Intel, NVIDIA, and Ayar Labs are in volume production or late pre-production for CPO switches as of 2025.
+- **Co-packaged optics (CPO)** eliminates the ~8 cm PCB trace from ASIC to pluggable module, reducing SerDes power by ~50–70 % and increasing bandwidth density by ~3×; Broadcom (in volume) and NVIDIA (shipping 2026) sell CPO switches; optical I/O on compute packages (Ayar Labs, Lightmatter) is still pre-volume.
 - **WDM** (wavelength division multiplexing) multiplies the effective bandwidth of a single waveguide by carrying N independent channels at N wavelengths simultaneously — physically impossible for electrical signaling.
 - **Photonic compute** (MZI meshes for matrix multiply) has genuine theoretical energy appeal but faces fundamental engineering barriers: nonlinear activations require O/E/O conversion, ADC/DAC overhead dominates at scale, analog precision is limited, and thermal phase shifters are too slow for rapid weight updates.
-- The honest picture in 2025: optical interconnect is mature and deployed; CPO is commercially arriving; optical compute for training is not feasible; optical compute for small fixed-weight inference is a narrow but plausible niche.
+- The honest picture in late 2026: optical interconnect is mature and deployed; CPO is commercially arriving; optical compute for training is not feasible; optical compute for small fixed-weight inference is a narrow but plausible niche.
 - For ML practitioners: the primary photonics impact on your training workloads is in the switch fabric — CPO-based switches reduce all-reduce energy and increase inter-GPU bandwidth, enabling either larger clusters at the same power budget or faster collective operations at the same cost.
+
+## Check Yourself
+
+<details class="check">
+<summary>An 800G pluggable module draws ~16 W. What is its energy per bit, and what does CPO at ~9 W per 1.6T port imply?</summary>
+<p>16 W ÷ 800 Gb/s = 20 pJ/bit. 9 W ÷ 1.6 Tb/s ≈ 5.6 pJ/bit, about 3.5× better, matching NVIDIA's claim.</p>
+</details>
+
+<details class="check">
+<summary>Why do silicon-photonic links use an external laser?</summary>
+<p>Silicon has an indirect bandgap and emits light very inefficiently, so the light source is a III-V (InP, GaAs) laser, either bonded onto the chip or, in today's CPO products, in a replaceable module.</p>
+</details>
+
+<details class="check">
+<summary>How many channels does a WDM link with 8 wavelengths × 16 waveguides × 100 Gb/s carry, and what is the total?</summary>
+<p>128 channels, 12.8 Tb/s.</p>
+</details>
+
+<details class="check">
+<summary>Why is photonic matrix multiplication not used for training?</summary>
+<p>Training needs high precision, nonlinear functions, frequent weight updates and large memory traffic. Photonic meshes give ~4–8 effective bits, need O/E/O conversion for nonlinearities and ADC/DACs that dominate the energy, and reprogram slowly.</p>
+</details>
+
+<details class="check">
+<summary>In the chapter's example, the all-reduce optics used ~148 kJ per step on 1,024 GPUs. What fraction of the step's energy is that if the step takes 10 s at 700 W per GPU?</summary>
+<p>GPU energy ≈ 1,024 × 700 W × 10 s ≈ 7.2 MJ, so ~2%. The network matters more for cluster size and bandwidth than for energy.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Silicon photonics (review) | Shekhar et al., Nature Communications 2024 | [doi.org/10.1038/s41467-024-44750-0](https://doi.org/10.1038/s41467-024-44750-0) | Building blocks: waveguides, modulators, Ge detectors |
+| Deep learning with coherent nanophotonic circuits | Shen et al., Nature Photonics 2017 | [doi.org/10.1038/nphoton.2017.93](https://doi.org/10.1038/nphoton.2017.93) | MZI-mesh optical matrix multiply |
+| NVIDIA Spectrum-X Photonics and Quantum-X Photonics | NVIDIA, Mar 2025 | [nvidianews.nvidia.com/news/nvidia-spectrum-x-…](https://nvidianews.nvidia.com/news/nvidia-spectrum-x-co-packaged-optics-networking-switches-ai-factories) | CPO switches, 3.5× efficiency claim |
+| Broadcom co-packaged optics | Broadcom | [broadcom.com/info/optics/cpo](https://www.broadcom.com/info/optics/cpo) | Bailly and Tomahawk 6 CPO |
+| Ayar Labs TeraPHY | Ayar Labs | [ayarlabs.com](https://ayarlabs.com/) | Optical I/O chiplets |
+| Lightmatter Passage | Lightmatter | [lightmatter.co](https://lightmatter.co/) | Photonic interposer and interconnect |
+| Jupiter Evolving: Transforming Google's Datacenter Network via Optical Circuit Switches | Poutievski et al., SIGCOMM 2022 | [doi.org/10.1145/3544216.3544265](https://doi.org/10.1145/3544216.3544265) | Optical circuit switching at scale |
+| TPU v4: An Optically Reconfigurable Supercomputer | Jouppi et al., ISCA 2023 | [arxiv.org/abs/2304.01433](https://arxiv.org/abs/2304.01433) | OCS in TPU pods |
 
 ---
 
-*Next: [Appendix D — Power & Thermals](./appendix_d_power_and_thermals.md), where we trace where the watts go — from the transistor switch to the datacenter cooling infrastructure — and understand why power is the binding constraint on every AI accelerator.*
+**Next:** [Appendix D — Power & Thermals](./appendix_d_power_and_thermals.md) — We trace where the watts go, from the transistor switch to the data-centre cooling plant, and why power is now the binding constraint.
 
 [← Back to Table of Contents](./README.md)

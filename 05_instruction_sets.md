@@ -26,7 +26,7 @@ These two terms are constantly confused. The distinction is critical.
     <ul>
       <li>The <em>specification</em>: which instructions exist, how they're encoded, what registers are visible, what memory model is guaranteed</li>
       <li>Defines the <strong>programmer-visible state</strong>: registers, flags, PC</li>
-      <li>Stable for decades — x86-64 binaries from 2004 run on 2024 CPUs</li>
+      <li>Stable for decades — x86-64 binaries from 2004 run on 2026 CPUs</li>
       <li>Examples: x86-64, ARMv9, RISC-V RV64GC</li>
     </ul>
   </div>
@@ -36,7 +36,7 @@ These two terms are constantly confused. The distinction is critical.
       <li>The <em>silicon design</em> that executes the ISA: pipeline stages, out-of-order engine, branch predictors, cache sizes</li>
       <li>Invisible to a correct program — only performance changes</li>
       <li>Changes every 1–3 years per generation</li>
-      <li>Examples: Intel Raptor Cove (x86), ARM Cortex-X4 (ARMv9), SiFive P670 (RISC-V)</li>
+      <li>Examples: Intel Lion Cove and AMD Zen 5 (x86-64), Arm Cortex-X925 (ARMv9.2), SiFive P870 (RISC-V)</li>
     </ul>
   </div>
 </div>
@@ -92,7 +92,7 @@ Registers are the processor's fastest storage — typically **64-bit general-pur
 - **Status/flags register**: carries results of comparisons (ZF, CF, OF, SF)
 - **Program counter (PC/RIP)**: address of the next instruction
 
-Register access is ~1 cycle. An L1-cache miss is ~4 cycles. A DRAM access is ~200 cycles. The ISA exposes registers; the microarchitecture may rename them internally (register renaming in out-of-order cores) to far more physical registers than the ISA requires.
+Register access is ~1 cycle. An L1-cache hit takes ~4–5 cycles, an L2 hit ~12–16, and a DRAM access ~200–400. The ISA exposes registers; the microarchitecture may rename them internally (register renaming in out-of-order cores) to far more physical registers than the ISA requires.
 
 ---
 
@@ -148,10 +148,10 @@ This means the "CISC vs RISC" distinction is today more of a **software ABI and 
 |---|:---:|:---:|:---:|
 | Encoding length | 1–15 bytes | 4 bytes (32-bit Thumb2: 2/4) | 4 bytes (2 w/ C ext) |
 | Architecture family | CISC | RISC | RISC |
-| Internal micro-ops | Yes (Intel/AMD) | No (executes natively) | No |
+| Internal micro-ops | Yes, often 1 → several | Yes, mostly 1 → 1 (plus fusion) | Mostly 1 → 1 (plus fusion) |
 | Memory operands | Yes | No (load-store) | No (load-store) |
 | General-purpose registers | 16 (64-bit) | 31 (64-bit) + SP | 32 (64-bit) |
-| SIMD registers | 32×512-bit (ZMM) | 32×128-bit NEON | V ext: 32×VLEN-bit |
+| SIMD registers | 32×512-bit ZMM (AVX-512 / AVX10) | 32×128-bit NEON; SVE 128–2048-bit; SME tiles | V ext: 32×VLEN-bit |
 | Open-source ISA | No | No | **Yes** |
 | Primary ecosystem | PC, server | Mobile, Apple silicon, server | Embedded, growing datacenter |
 
@@ -166,16 +166,18 @@ The dominant server and desktop ISA — the machine your CUDA code usually runs 
 Key facts for ML practitioners:
 - Your CPU host code in PyTorch compiles to x86-64
 - **AVX-512 and VNNI/AMX** (see SIMD section) give CPUs competitive INT8/BF16 throughput for inference
-- Intel Core (Raptor Lake, Meteor Lake) and AMD Zen 4/5 are the current microarchitectures
-- Server: Intel Sapphire Rapids/Granite Rapids, AMD EPYC Genoa/Turin
+- Client, late 2026: Intel Core Ultra (Arrow Lake, Lunar Lake, and Panther Lake on Intel 18A) and AMD Zen 5 (Ryzen 9000, Ryzen AI)
+- Server: Intel Xeon 6 (Granite Rapids P-cores, Sierra Forest and Clearwater Forest E-cores), AMD EPYC Turin (Zen 5), with Zen 6 "Venice" on TSMC N2 next
+- **AVX10** (announced 2023) is Intel's plan to re-unify AVX-512 across client and server parts after client chips dropped it in 2021; AVX10.2 requires full 512-bit vectors
 
 ### ARM (ARMv8 / ARMv9 / AArch64)
 
 ARM Holdings designs the ISA and licenses it; dozens of companies implement their own microarchitectures. The licensing model is why you see ARM in phones (Apple A-series, Qualcomm Snapdragon), servers (AWS Graviton, Ampere Altra), and embedded (Cortex-M).
 
 Key facts for ML:
-- **Apple M-series SoCs** (M1–M4) use ARMv8.5/v9 with Apple's own microarchitecture — and share memory between CPU and Neural Engine
-- **AWS Graviton 3/4**: 64 Neoverse cores, 300 GB/s memory bandwidth — competitive for serving
+- **Apple M-series SoCs** (M1–M5) use ARMv8.5 through ARMv9.2 with Apple's own microarchitecture, and share one memory pool between CPU, GPU and Neural Engine
+- **Arm servers** are now mainstream: AWS Graviton3 (64 Neoverse V1 cores, ~300 GB/s) and Graviton4 (96 Neoverse V2 cores, ~540 GB/s), NVIDIA Grace (72 Neoverse V2 cores beside each Hopper/Blackwell GPU), Google Axion, Microsoft Cobalt
+- **SME / SME2** (Scalable Matrix Extension, ARMv9.2+) adds an outer-product matrix engine with its own ZA tile storage, the Arm counterpart of Intel AMX. It ships in Apple M4 and later and in Arm's 2025 C1 CPU cores
 - ARM's NEON (128-bit SIMD) and **SVE/SVE2** (Scalable Vector Extension — 128 to 2048-bit vectors, vector length determined at runtime) are the ML-critical extensions
 - `bfloat16` native support added in ARMv8.6
 
@@ -199,7 +201,8 @@ RISC-V standard extensions (letters in ISA string RV64GC):
 Why it matters for ML:
 - **Eliminates licensing fees** → lowers barriers for custom AI chip startups
 - **Modular design** — add only the extensions you need (e.g., a custom ML extension `Xnn`)
-- Already shipping: SiFive, Alibaba T-Head (C910), StarFive JH7110, ESWIN EIC7700X
+- Already shipping: SiFive, Alibaba T-Head (C910/C920), StarFive JH7110, ESWIN EIC7700X; inside AI chips, RISC-V cores act as control processors in Tenstorrent's accelerators and Meta's MTIA
+- The **RVA23** application profile (ratified October 2024) makes the vector extension mandatory for application processors, so Linux distributions can finally target one RISC-V baseline with vectors
 - RISC-V V (vector) extension enables portable SIMD — same story as ARM SVE
 
 ---
@@ -249,7 +252,7 @@ One instruction, 16 additions, executed in the same cycle (roughly). This is the
 | AVX / AVX2 | 256-bit (YMM) | 8 | 32 | Most x86 deployment target |
 | AVX-512F | 512-bit (ZMM) | 16 | 64 | High-throughput FP32 inference |
 | AVX-512 VNNI | 512-bit | — | 64 (w/ dot) | **INT8 dot-product for inference** |
-| AMX-INT8 / AMX-BF16 | tile (1024-byte rows) | — | tile matmul | **Sapphire Rapids+ matrix units** |
+| AMX-INT8 / BF16 / FP16 | 8 tiles × (16 rows × 64 B) | — | tile matmul | **Xeon matrix units (Sapphire Rapids+, FP16 from Granite Rapids)** |
 
 ### ARM SIMD: NEON and SVE
 
@@ -277,7 +280,9 @@ VPDPBUSD zmm0, zmm1, zmm2
   ; This is exactly the quantized dot product in INT8 GEMM
 ```
 
-**AMX** (Advanced Matrix Extensions, Intel Sapphire Rapids 2023+): full 2D tile registers (up to 16 rows × 64 bytes each, ~1024 bytes per tile). `TMUL` instructions multiply two tiles — essentially a tiny matrix unit built into the CPU.
+**AMX** (Advanced Matrix Extensions, Intel Sapphire Rapids 2023+): eight 2D tile registers, each up to 16 rows × 64 bytes (1 KiB). One `TDPBSSD` (INT8) or `TDPBF16PS` (BF16) instruction multiplies two tiles and accumulates into a third, essentially a tiny matrix unit built into each core. The [vectorization guide](https://karam-nus.github.io/vectorization/16_matrix_engines.html) measures AMX at about 13× AVX-512 on one core.
+
+**SME** (Scalable Matrix Extension, Arm) does the same job differently: instead of fixed tiles it computes outer products of two SVE vectors into a square ZA array whose size scales with the vector length.
 
 ```python
 # Conceptual illustration: what VNNI does per clock in Python terms
@@ -386,6 +391,11 @@ The computation is identical; the encoding and addressing philosophy differ. The
 
 ---
 
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>x86, Arm (SME) and RISC-V vendors are all adding matrix instructions to general-purpose cores. If a CPU core can do a tile multiply, what is left that only a separate accelerator can offer: more of those units, more memory bandwidth, or something else? Keep your answer in mind for <a href="./14_cpus.html">Chapter 14</a>.</p>
+</div>
+
 ## VLIW: An Honorable Mention
 
 **VLIW (Very Long Instruction Word)** is a third philosophy: pack *multiple independent operations* into one wide instruction word, letting the *compiler* (not hardware) figure out what can run in parallel.
@@ -428,7 +438,7 @@ VLIW is relevant to you because some DSPs and NPUs you'll target for edge infere
   </div>
   <div class="diagram-card blue">
     <div class="card-title">RISC-V for Custom Silicon</div>
-    <div class="card-desc">AI chip startups adding custom ML instructions extend RISC-V with custom extensions (Xnn). The open ISA eliminates licensing barriers — you'll see it in edge AI chips increasingly from 2025 onward.</div>
+    <div class="card-desc">AI chip teams extend RISC-V with custom instructions for their own datatypes and control. The open ISA removes licensing barriers; Tenstorrent, Meta (MTIA) and many edge-AI startups already ship RISC-V cores.</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">Compile Targets</div>
@@ -448,7 +458,7 @@ if platform.machine() in ("x86_64", "AMD64"):
         import cpuinfo  # pip install py-cpuinfo
         info = cpuinfo.get_cpu_info()
         flags = info.get("flags", [])
-        for ext in ["avx", "avx2", "avx512f", "avx512vnni", "amx_int8", "amx_bf16"]:
+        for ext in ["avx", "avx2", "avx512f", "avx512_vnni", "amx_int8", "amx_bf16"]:
             status = "✓" if ext in flags else "✗"
             print(f"  {status} {ext}")
     except ImportError:
@@ -474,12 +484,50 @@ Knowing your CPU's SIMD capability lets you reason about whether oneDNN will use
 - **x86-64** is CISC in encoding but translates to internal RISC-like micro-ops for execution. **ARM64** and **RISC-V** are load-store RISC ISAs with fixed-width encodings — simpler decoders, better suited to many-core scaling.
 - **SIMD extensions** (SSE/AVX/AVX-512, NEON/SVE) let one instruction process a *vector* of values — 4×, 8×, 16×, or more — per cycle. This is the CPU-level form of data parallelism, the ancestor of GPU SIMT.
 - **VNNI** (AVX-512) adds dedicated INT8 dot-product instructions and is the reason INT8 CPU inference can be 4× faster than FP32 on modern x86 servers.
-- **AMX** (Intel Sapphire Rapids+) brings tile-level matrix units into x86 CPUs — blurring the CPU/accelerator boundary for inference.
+- **AMX** (Intel Xeon) and **SME** (Arm, Apple M4+) bring tile-level matrix units into CPU cores, blurring the CPU/accelerator boundary for inference.
 - **RISC-V**'s open ISA eliminates licensing fees, enabling a wave of custom AI chips with proprietary ML extensions.
 - Every framework optimization (oneDNN, XLA, TVM, torch.compile) ultimately targets one of these ISAs and selects the widest available vector extension at runtime.
 
+## Check Yourself
+
+<details class="check">
+<summary>Why can Intel change its microarchitecture every generation without breaking your binaries, but not its ISA?</summary>
+<p>Binaries are encoded against the ISA: instruction encodings, visible registers, memory-ordering rules. The microarchitecture (pipeline depth, caches, number of execution ports) only changes timing, which a correct program cannot observe, so it can change freely.</p>
+</details>
+
+<details class="check">
+<summary>How many INT8 multiply-accumulates does one AVX-512 VNNI <code>VPDPBUSD</code> perform, and why is that 4× the FP32 FMA count?</summary>
+<p>A 512-bit register holds 64 INT8 values; VPDPBUSD multiplies 64 pairs and adds each group of four products into one of 16 INT32 accumulators, so 64 MACs. An FP32 FMA on the same register covers only 16 lanes.</p>
+</details>
+
+<details class="check">
+<summary>What does SVE's vector-length agnosticism buy you compared with AVX-512?</summary>
+<p>SVE code queries the hardware vector length at run time and uses predicates for loop tails, so one binary runs correctly and uses all lanes on 128-bit (Graviton4) and 512-bit (A64FX) implementations. AVX-512 code is written for exactly 512 bits and needs separate builds or dispatch for AVX2.</p>
+</details>
+
+<details class="check">
+<summary>Why is x86 still called CISC if it executes RISC-like micro-ops?</summary>
+<p>Because the ISA, the contract software sees, is still variable-length (1–15 bytes) with memory operands and complex addressing. The micro-op translation is a microarchitectural choice; it costs decoder area and power but is invisible to programs.</p>
+</details>
+
+<details class="check">
+<summary>Your INT8 model runs no faster than FP32 on a cloud VM. What ISA feature should you check first?</summary>
+<p>Whether the CPU (and the VM) exposes AVX-512 VNNI or AMX: look for <code>avx512_vnni</code> or <code>amx_int8</code> in <code>/proc/cpuinfo</code>, or <code>torch.backends.cpu.get_cpu_capability()</code>. Without them, INT8 kernels fall back to slower paths and quantization buys mostly memory, not speed.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Intel 64 and IA-32 Architectures Software Developer's Manual | Intel, updated quarterly | [intel.com/content/www/us/en/developer/article…](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html) | x86 encodings, AVX-512, AMX tile semantics |
+| Intel Intrinsics Guide | Intel | [intel.com/content/www/us/en/docs/intrinsics-g…](https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html) | VPDPBUSD, VFMADD and AMX intrinsics |
+| Arm Architecture Reference Manual for A-profile | Arm | [developer.arm.com/documentation/ddi0487/latest](https://developer.arm.com/documentation/ddi0487/latest) | AArch64, NEON, SVE/SVE2 and SME |
+| RISC-V ratified specifications and profiles (RVA23) | RISC-V International, 2024 | [riscv.org/specifications/ratified](https://riscv.org/specifications/ratified/) | Base ISA, V extension, the RVA23 application profile |
+| uops.info: latency and throughput of x86 instructions | A. Abel, J. Reineke | [uops.info](https://uops.info) | FMA latency (4 cycles) and reciprocal throughput (0.5) |
+| A New Golden Age for Computer Architecture | J. Hennessy, D. Patterson, CACM 2019 | [doi.org/10.1145/3282307](https://doi.org/10.1145/3282307) | RISC vs CISC history; why open ISAs and domain-specific extensions matter |
+
 ---
 
-*Next: [Chapter 6 — Languages & Nomenclature of the Stack](./06_languages_and_nomenclature.md), where we trace the full journey from Python down to transistors — assembly, Verilog, CUDA, Triton, and every layer in between.*
+**Next:** [Chapter 6 — Languages & Nomenclature of the Stack](./06_languages_and_nomenclature.md) — We trace the full journey from Python down to transistors — assembly, Verilog, CUDA, Triton, and every layer in between.
 
 [← Back to Table of Contents](./README.md)

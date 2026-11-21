@@ -146,11 +146,11 @@ Because the cache so often dominates, there is a whole toolbox aimed squarely at
   </div>
   <div class="diagram-card green">
     <div class="card-title">Shrink bytes → KV quantization</div>
-    <div class="card-desc">Store K/V at INT8 or FP8 instead of FP16 → <strong>2× cut</strong>; some systems push to INT4 for <strong>4×</strong>. Targets long context specifically. See <a href="./25_quantization_hardware_view.md">Ch 25</a>.</div>
+    <div class="card-desc">Store K/V at INT8 or FP8 instead of FP16 → <strong>2× cut</strong>; some systems push to INT4 for <strong>4×</strong>. Targets long context specifically. See <a href="./25_quantization_hardware_view.html">Ch 25</a>.</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Stop wasting it → PagedAttention</div>
-    <div class="card-desc">Allocate the cache in fixed <strong>blocks (pages)</strong> like OS virtual memory (<a href="./10_memory_management.md">Ch 10</a>) instead of one contiguous slab per request. Kills fragmentation; lifts usable batch 2–4×.</div>
+    <div class="card-desc">Allocate the cache in fixed <strong>blocks (pages)</strong> like OS virtual memory (<a href="./10_memory_management.html">Ch 10</a>) instead of one contiguous slab per request. Kills fragmentation; lifts usable batch 2–4×.</div>
   </div>
   <div class="diagram-card purple">
     <div class="card-title">Don't recompute → prefix caching</div>
@@ -159,9 +159,11 @@ Because the cache so often dominates, there is a whole toolbox aimed squarely at
 </div>
 </div>
 
-**GQA/MQA** ([grouped/multi-query attention]) directly attack $n_{kv}$. With $n_{heads}$ query heads but only $n_{kv}$ key/value heads, several query heads *share* one K/V head. MQA ($n_{kv}=1$) is the extreme; GQA ($n_{kv}=4$ or $8$) is the sweet spot that keeps quality. The KV-cache shrinks by exactly $n_{heads}/n_{kv}$.
+**GQA/MQA** (grouped-query and multi-query attention) directly attack $n_{kv}$. With $n_{heads}$ query heads but only $n_{kv}$ key/value heads, several query heads *share* one K/V head. MQA ($n_{kv}=1$) is the extreme; GQA ($n_{kv}=4$ or $8$) is the sweet spot that keeps quality. The KV-cache shrinks by exactly $n_{heads}/n_{kv}$.
 
-**KV-cache quantization** attacks the `bytes` factor. Keys and values are activations, so they are *harder* to quantize than weights (outliers — see [Chapter 25](./25_quantization_hardware_view.md)), but per-token or per-channel scaling makes INT8/FP8 KV practical, halving the cache. It is the right lever precisely when context is long (the cache, not the weights, is your capacity problem).
+DeepSeek's **Multi-head Latent Attention (MLA)**, used in DeepSeek-V2 and V3, goes further: instead of caching per-head K and V it caches one compressed 512-dimensional latent plus a 64-dimensional positional key per token per layer, and re-expands them inside the attention kernel. For DeepSeek-V3 that is 61 layers × 576 values × 2 bytes ≈ 69 KB per token, against about 320 KB for Llama 3 70B with GQA. The price is extra matmuls at decode time, a trade the roofline says is cheap because decode has compute to spare.
+
+**KV-cache quantization** attacks the `bytes` factor. Keys and values are activations, so they are *harder* to quantize than weights (outliers — see [Chapter 25](./25_quantization_hardware_view.md)), but per-token or per-channel scaling makes INT8/FP8 KV practical, halving the cache. It is the right lever precisely when context is long (the cache, not the weights, is your capacity problem). FP8 KV is now a default option in vLLM, SGLang and TensorRT-LLM, and Blackwell-era stacks are moving to 4-bit KV with block scales.
 
 **PagedAttention** (the idea behind vLLM) attacks *waste*. A naive serving system reserves a contiguous buffer sized for each request's *maximum* length, so a request that generates 100 tokens but was sized for 8,192 wastes 98% of its reservation — **internal fragmentation**. Paging the cache into small fixed blocks (e.g., 16 tokens) and mapping them through a block table — exactly the virtual-memory trick from [Chapter 10](./10_memory_management.md) — lets memory be allocated on demand, raising the number of concurrent sequences 2–4×.
 
@@ -260,17 +262,42 @@ The fix is the same bargain as the KV-cache, run in reverse: **trade compute for
 </div>
 </div>
 
-The classic result: checkpointing every layer reduces activation memory from $O(L)$ to roughly $O(\sqrt{L})$ at the cost of **one extra forward pass (~33% more compute)**. In PyTorch it is a one-line wrap with `torch.utils.checkpoint.checkpoint`. The recompute is comparatively cheap because — as [Chapter 11](./11_memory_wall_and_bandwidth.md) showed — much of the forward pass is memory-bound, so the "extra" FLOPs are partly hidden behind bandwidth you were paying for anyway.
+The classic result (Chen et al., 2016): keeping a checkpoint every $\sqrt{L}$ layers reduces activation memory from $O(L)$ to roughly $O(\sqrt{L})$ at the cost of **one extra forward pass (~33% more compute)**. Transformer frameworks usually checkpoint at every layer boundary instead, keeping one tensor per layer rather than the 16–34 the forward pass would otherwise save; and *selective* recomputation (Korthikanti et al., 2022) recomputes only the cheap-to-redo attention internals, cutting activation memory about 5× for a few percent of extra compute. In PyTorch it is a one-line wrap with `torch.utils.checkpoint.checkpoint`. The recompute is comparatively cheap because — as [Chapter 11](./11_memory_wall_and_bandwidth.md) showed — much of the forward pass is memory-bound, so the "extra" FLOPs are partly hidden behind bandwidth you were paying for anyway.
 
 ### Offloading: Spilling to CPU and NVMe
 
-When even checkpointing is not enough, you can **offload** tensors down the hierarchy from [Chapter 9](./09_memory_types.md): push optimizer states, gradients, or activations to **CPU DRAM** (~50–100 GB/s over PCIe) or even **NVMe** (~3–14 GB/s). This is what ZeRO-Offload / ZeRO-Infinity do ([Chapter 28](./28_multi_gpu_and_distributed_training.md)). It buys capacity at a steep bandwidth cost: moving a tensor to CPU and back over PCIe 5.0 (~64 GB/s) is ~50× slower than HBM, so offloading is a "fit it at all" tool, not a "make it fast" tool. The art is overlapping the transfers with compute so the PCIe latency hides behind the GPU's work.
+When even checkpointing is not enough, you can **offload** tensors down the hierarchy from [Chapter 9](./09_memory_types.md): push optimizer states, gradients, or activations to **CPU DRAM** (~50–100 GB/s over PCIe) or even **NVMe** (~3–14 GB/s). This is what ZeRO-Offload / ZeRO-Infinity do ([Chapter 28](./28_multi_gpu_and_distributed_training.md)). It buys capacity at a steep bandwidth cost: moving a tensor to CPU and back over PCIe 5.0 (~64 GB/s) is ~50× slower than HBM, so offloading is a "fit it at all" tool, not a "make it fast" tool. Superchips change the ratio: Grace Hopper and Grace Blackwell connect the GPU to 480 GB of CPU LPDDR5X over NVLink-C2C at 900 GB/s, which makes optimizer and KV-cache offload far less painful than over PCIe. The art is overlapping the transfers with compute so the PCIe latency hides behind the GPU's work.
 
 ---
 
 ## Prefill vs Decode: Two Workloads, Two Optimizations
 
 A single LLM request has **two phases with opposite roofline character**, and conflating them is a common and expensive mistake.
+
+<!-- flowchart:request_life -->
+<div class="flowchart" id="fc-request_life">
+<div class="fc-title">The life of one LLM request, seen from memory</div>
+<svg viewBox="0 0 800 330" width="800" role="img" aria-label="The life of one LLM request, seen from memory">
+<path class="fc-edge" d="M180,50 L208,50"/><polygon class="fc-head" points="208,50 201,53.9 201,46.1"/>
+<path class="fc-edge" d="M428,50 L520,50"/><polygon class="fc-head" points="520,50 513,53.9 513,46.1"/><text class="fc-elabel " x="474" y="41" text-anchor="middle">writes K,V</text>
+<path class="fc-edge" d="M640,78 L640,140"/><polygon class="fc-head" points="640,140 636.1,133 643.9,133"/>
+<path class="fc-edge" d="M640,196 L640,257"/><polygon class="fc-head" points="640,257 636.1,250 643.9,250"/>
+<path class="fc-edge loop" d="M745,278 L790,278 L790,168 L770,168"/><polygon class="fc-head loop" points="770,168 777,164.2 777,171.8"/><text class="fc-elabel loop" x="784" y="226" text-anchor="end">no: next token</text>
+<path class="fc-edge yes" d="M535,278 L465,278"/><polygon class="fc-head yes" points="465,278 472,274.1 472,281.9"/><text class="fc-elabel yes" x="525" y="270" text-anchor="end">yes</text>
+<path class="fc-edge" d="M255,278 L200,278"/><polygon class="fc-head" points="200,278 207,274.1 207,281.9"/>
+<path class="fc-edge loop" d="M430,168 L510,168"/><polygon class="fc-head loop" points="510,168 503,171.8 503,164.2"/>
+<g class="fc-node start"><rect x="20" y="28" width="160" height="44" rx="16"/><text x="100" y="48" text-anchor="middle">Prompt arrives</text><text class="sub" x="100" y="61" text-anchor="middle">N tokens</text></g>
+<g class="fc-node k-green"><rect x="208" y="22" width="220" height="56" rx="6"/><text x="318" y="42" text-anchor="middle">Prefill</text><text class="sub" x="318" y="55" text-anchor="middle">all N tokens, one batched GEMM pass</text><text class="sub" x="318" y="67" text-anchor="middle">compute-bound</text></g>
+<a href="./09_memory_types.html"><g class="fc-node leaf k-purple"><rect x="520" y="22" width="240" height="56" rx="6"/><text x="640" y="42" text-anchor="middle">KV cache in HBM</text><text class="sub" x="640" y="55" text-anchor="middle">2 × layers × KV heads × head dim</text><text class="sub" x="640" y="67" text-anchor="middle">× bytes, per token</text></g></a>
+<g class="fc-node k-orange"><rect x="510" y="140" width="260" height="56" rx="6"/><text x="640" y="160" text-anchor="middle">Decode step</text><text class="sub" x="640" y="173" text-anchor="middle">read every weight + this sequence&#x27;s KV</text><text class="sub" x="640" y="185" text-anchor="middle">memory-bound at small batch</text></g>
+<g class="fc-node decision"><polygon points="535,278 549,257 731,257 745,278 731,299 549,299"/><text x="640" y="282" text-anchor="middle">End of sequence?</text></g>
+<a href="./10_memory_management.html"><g class="fc-node k-cyan"><rect x="255" y="256" width="210" height="44" rx="6"/><text x="360" y="276" text-anchor="middle">Free the KV pages</text><text class="sub" x="360" y="289" text-anchor="middle">PagedAttention block table</text></g></a>
+<g class="fc-node start"><rect x="20" y="262" width="180" height="32" rx="16"/><text x="110" y="282" text-anchor="middle">Response complete</text></g>
+<a href="./11_memory_wall_and_bandwidth.html"><g class="fc-node k-teal"><rect x="170" y="140" width="260" height="56" rx="6"/><text x="300" y="160" text-anchor="middle">Continuous batching</text><text class="sub" x="300" y="173" text-anchor="middle">many sequences share each weight read,</text><text class="sub" x="300" y="185" text-anchor="middle">raising FLOPs per byte</text></g></a>
+</svg>
+<div class="fc-caption">Prefill is one large, compute-bound pass; decode is a long loop of small, memory-bound passes. Almost every serving optimisation targets the loop.</div>
+</div>
+<!-- /flowchart:request_life -->
 
 <div class="diagram">
 <div class="diagram-title">One Request, Two Regimes</div>
@@ -295,6 +322,8 @@ A single LLM request has **two phases with opposite roofline character**, and co
 | Best levers | FlashAttention, low-precision matmul | weight + KV quantization, batching, GQA |
 
 **Chunked prefill** is the modern reconciliation: a long prompt's prefill is broken into chunks and **interleaved with ongoing decode steps** of other requests in the same iteration. This stops a big prefill from blocking everyone's decode (a TTFT-vs-TPOT fairness fix) and keeps both the tensor cores (prefill) and the bandwidth (decode) busy simultaneously — using the *one* request type to fill the roof the other leaves empty.
+
+**Disaggregated serving** takes the opposite approach: run prefill and decode on *different* GPUs (DistServe, Splitwise, NVIDIA Dynamo), shipping the finished KV cache from the prefill pool to the decode pool over NVLink or RDMA. Each pool is then sized and batched for its own roofline regime. By 2026 the split has reached the hardware roadmap: NVIDIA pairs Vera Rubin racks with Groq-derived LPX racks, whose on-chip SRAM is aimed squarely at the bandwidth-bound decode loop.
 
 ---
 
@@ -428,13 +457,29 @@ Everything in this chapter reduces to one accounting identity. The GPU's HBM mus
 
 $$\text{HBM used} = \underbrace{\text{weights}}_{\text{fixed}} + \underbrace{\text{KV-cache}}_{\propto\, \text{seq} \times \text{batch}} + \underbrace{\text{activations / workspace}}_{\text{transient}} \;\le\; \text{HBM capacity}$$
 
-```text
-┌──────────────────────── 80 GB HBM (H100) ────────────────────────┐
-│ Weights (fixed)      │ KV-cache (grows with seq × batch) │ work │
-│ e.g. 70B INT8 = 70GB │  ◄── this is what caps your batch ──►│ space│
-└───────────────────────────────────────────────────────────────────┘
-        capacity problem            capacity + bandwidth problem
-```
+<div class="budget">
+<div class="bg-legend"><span style="--c:var(--accent)">weights</span><span style="--c:#60a5fa">KV-cache room</span><span style="--c:#4b5563">workspace</span><span>bar length = HBM capacity</span></div>
+<div class="bg-row"><div class="bg-name">H100 · 80 GB<small>Llama 3 70B, INT8 weights</small></div>
+<div class="bg-track" style="--cap:27.8"><i class="w" style="--v:87.5">70 GB</i><i class="kv" style="--v:7.5"></i><i class="ws" style="--v:5"></i></div>
+<div class="bg-note">6 GB of KV ≈ 18k tokens total (BF16 KV): two 8k chats</div></div>
+<div class="bg-row"><div class="bg-name">H200 · 141 GB<small>same model, INT8 weights</small></div>
+<div class="bg-track" style="--cap:49"><i class="w" style="--v:49.6">70 GB</i><i class="kv" style="--v:46.1">65 GB</i><i class="ws" style="--v:4.3"></i></div>
+<div class="bg-note">≈ 198k tokens of BF16 KV, ≈ 397k in FP8</div></div>
+<div class="bg-row"><div class="bg-name">B300 · 288 GB<small>same model, BF16 weights</small></div>
+<div class="bg-track" style="--cap:100"><i class="w" style="--v:48.6">140 GB</i><i class="kv" style="--v:48.6">140 GB</i><i class="ws" style="--v:2.8"></i></div>
+<div class="bg-note">≈ 427k tokens of BF16 KV with no quantization at all</div></div>
+<div class="bg-row"><div class="bg-name">B300 · 288 GB<small>same model, NVFP4 weights</small></div>
+<div class="bg-track" style="--cap:100"><i class="w" style="--v:13.7">39 GB</i><i class="kv" style="--v:83.5">241 GB</i><i class="ws" style="--v:2.8"></i></div>
+<div class="bg-note">≈ 734k tokens BF16, ≈ 1.47M tokens FP8: batch is now bandwidth-limited, not capacity-limited</div></div>
+</div>
+
+Llama 3 70B stores 2 × 80 layers × 8 KV heads × 128 × 2 bytes = 320 KB of KV per token, so every gigabyte left after the weights buys about 3,000 tokens of context, shared across every request in the batch. The bars show why quantizing weights on a small-memory GPU is really about *making room for the KV cache*, and why the jump to 141–288 GB parts changed serving more than any FLOP increase did.
+
+### Try It: Will It Fit?
+
+The lab below runs the HBM budget equation for real models and GPUs. Set Llama 3 70B to BF16 on an H100 and it overflows; switch the weights to INT4 and it fits with room to spare; now raise the context to 128k and the batch to 8 and watch the KV cache take over. Switch the job to full fine-tuning to see the 16 bytes per parameter of [Chapter 28](./28_multi_gpu_and_distributed_training.md) arrive.
+
+<div class="lab" data-lab="fit"><noscript><div class="lab-noscript">This lab needs JavaScript. It is also on the <a href="./labs.html">Interactive Labs</a> page.</div></noscript></div>
 
 - Quantizing **weights** (INT8/INT4) frees capacity *and* raises the decode ceiling (bandwidth). Pick this for "won't fit" and "too slow at batch=1."
 - Quantizing the **KV-cache** (INT8/FP8) and using **GQA** free the capacity that limits your batch. Pick these for "OOMs at high concurrency / long context."
@@ -442,6 +487,11 @@ $$\text{HBM used} = \underbrace{\text{weights}}_{\text{fixed}} + \underbrace{\te
 - **Checkpointing / offloading** trade compute or PCIe bandwidth for capacity in *training*. Pick these for "won't fit" during training.
 
 Each lever buys back a specific scarce resource — capacity, bandwidth, or compute. Naming which one you are short of is the entire skill, and it is the subject of the next chapter.
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>On the 288 GB part above, capacity stops being the limit and the batch is set by bandwidth instead: every decode step must read the weights <em>and</em> every active sequence's KV cache. At what total context does reading the KV cache cost more than reading 39 GB of FP4 weights, and what does that say about which lever matters next?</p>
+</div>
 
 ---
 
@@ -490,14 +540,56 @@ The practical workflow this chapter hands you:
 
 - **Decode is memory-bandwidth-bound.** At batch=1 the token-rate ceiling is `HBM_BW / model_bytes`: a 70B INT8 model on an H100 (70 GB ÷ 3.35 TB/s) tops out near **~48 tok/s**, regardless of tensor-core peak.
 - The **KV-cache** trades compute for memory and is sized by $2 \times L \times n_{kv} \times d_{head} \times \text{seq} \times \text{batch} \times \text{bytes}$. It grows with context and batch and **routinely exceeds the weights** (≈98% at 128k context; 4× the weights at batch 64 / 8k).
-- **GQA/MQA** cut $n_{kv}$ (a 32→8 head reduction is a 4× KV cut), **KV quantization** cuts the byte width (2–4×), **PagedAttention** kills fragmentation, and **prefix caching** removes redundant prefill — all to fit more concurrent sequences.
+- **GQA/MQA** cut $n_{kv}$ (a 32→8 head reduction is a 4× KV cut), **MLA** caches a compressed latent instead, **KV quantization** cuts the byte width (2–4×), **PagedAttention** kills fragmentation, and **prefix caching** removes redundant prefill — all to fit more concurrent sequences.
 - **Batching raises arithmetic intensity** (AI ≈ batch). It buys throughput by amortizing weight reads, at the cost of per-token latency — the throughput-vs-latency tradeoff. **Continuous batching** keeps the GPU full; KV-cache capacity caps how far you can go.
 - **Prefill is compute-bound** (big GEMM, optimize FLOPs, governs TTFT); **decode is memory-bound** (GEMV, optimize bytes, governs TPOT). **Chunked prefill** interleaves them.
 - In **training**, activation memory grows with sequence length and dwarfs weights at long context; **gradient checkpointing** trades ~33% extra compute for $O(\sqrt{L})$ memory, and **offloading** spills to CPU/NVMe to fit at all.
 - Every serving decision is the **HBM budget equation**: weights + KV-cache + workspace ≤ capacity, streamed within the bandwidth ceiling. Name which of capacity / bandwidth / compute you are short of, and the right lever follows.
 
+## Check Yourself
+
+<details class="check">
+<summary>Compute the KV cache per token for a model with 40 layers, 8 KV heads of dimension 128, in FP8. How many tokens fit in 20 GB?</summary>
+<p>2 × 40 × 8 × 128 × 1 B = 81,920 B ≈ 80 KB per token. 20 × 10⁹ / 81,920 ≈ 244,000 tokens across all requests.</p>
+</details>
+
+<details class="check">
+<summary>A 13B BF16 model decodes at batch 1 on a 4.8 TB/s H200. What is the token-rate ceiling, and what else reduces it at long context?</summary>
+<p>26 GB per token → 4.8 TB/s / 26 GB ≈ 185 tokens/s. At long context the KV cache must be read every step as well, adding its bytes to the denominator.</p>
+</details>
+
+<details class="check">
+<summary>Why is decode arithmetic intensity roughly equal to the batch size in BF16?</summary>
+<p>Each weight (2 bytes) is read once per step and used for one multiply-add (2 FLOPs) per sequence in the batch, so FLOPs per byte ≈ 2B / 2 = B. KV-cache reads, which are not shared across sequences, pull it lower.</p>
+</details>
+
+<details class="check">
+<summary>Your server OOMs at 64 concurrent 8k-token chats but GPU utilisation is low at 16. Name two levers and what each buys.</summary>
+<p>FP8 KV cache (halves KV bytes, doubling the sequences that fit) and PagedAttention with continuous batching (removes fragmentation so the KV that is allocated is actually used). GQA or MLA help too but need a different model.</p>
+</details>
+
+<details class="check">
+<summary>Why does disaggregating prefill and decode onto separate GPUs make sense from a roofline point of view?</summary>
+<p>Prefill is compute-bound and decode is memory-bound. On separate pools each can be batched and sized for its own limit, and long prefills no longer stall decode steps, at the cost of moving the KV cache between pools.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Efficient Memory Management for LLM Serving with PagedAttention | Kwon et al., 2023 | [arxiv.org/abs/2309.06180](https://arxiv.org/abs/2309.06180) | Paged KV cache and fragmentation numbers |
+| GQA: Training Generalized Multi-Query Transformer Models | Ainslie et al., 2023 | [arxiv.org/abs/2305.13245](https://arxiv.org/abs/2305.13245) | Grouped-query attention |
+| Fast Transformer Decoding: One Write-Head is All You Need | Shazeer, 2019 | [arxiv.org/abs/1911.02150](https://arxiv.org/abs/1911.02150) | Multi-query attention |
+| DeepSeek-V2 | DeepSeek-AI, 2024 | [arxiv.org/abs/2405.04434](https://arxiv.org/abs/2405.04434) | Multi-head Latent Attention |
+| Orca: A Distributed Serving System for Transformer-Based Generative Models | Yu et al., OSDI 2022 | [usenix.org/conference/osdi22/presentation/yu](https://www.usenix.org/conference/osdi22/presentation/yu) | Iteration-level (continuous) batching |
+| SARATHI: Efficient LLM Inference by Piggybacking Decodes with Chunked Prefills | Agrawal et al., 2023 | [arxiv.org/abs/2308.16369](https://arxiv.org/abs/2308.16369) | Chunked prefill |
+| DistServe | Zhong et al., OSDI 2024 | [arxiv.org/abs/2401.09670](https://arxiv.org/abs/2401.09670) | Prefill/decode disaggregation |
+| Training Deep Nets with Sublinear Memory Cost | Chen et al., 2016 | [arxiv.org/abs/1604.06174](https://arxiv.org/abs/1604.06174) | O(√L) activation checkpointing |
+| Reducing Activation Recomputation in Large Transformer Models | Korthikanti et al., 2022 | [arxiv.org/abs/2205.05198](https://arxiv.org/abs/2205.05198) | Selective recomputation and sequence parallelism |
+| ZeRO-Infinity | Rajbhandari et al., 2021 | [arxiv.org/abs/2104.07857](https://arxiv.org/abs/2104.07857) | Offloading to CPU and NVMe |
+
 ---
 
-*Next: [Chapter 30 — How Datatypes Drive Your Daily Optimization Choices](./30_datatypes_drive_optimization_choices.md), where these memory and bandwidth budgets become a single decision framework: given your model, GPU, and regime, exactly which precision and technique to reach for.*
+**Next:** [Chapter 30 — How Datatypes Drive Your Daily Optimization Choices](./30_datatypes_drive_optimization_choices.md) — These memory and bandwidth budgets become a single decision framework: given your model, GPU and regime, which datatype to use.
 
 [← Back to Table of Contents](./README.md)

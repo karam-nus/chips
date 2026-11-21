@@ -35,8 +35,8 @@ The raw output — called a **Bayer RAW image** — is typically stored as:
 |---|---|
 | Pixel depth | 10–14 bits per pixel (e.g., RAW12, RAW14) |
 | Resolution | 12–200 MP (phone); 50 MP typical for flagship |
-| Throughput at 4K@60 | ~2.1 Gpixels/s of raw data |
-| Bandwidth at 12 bpp, 4K@60 | ≈3.2 GB/s from sensor to ISP |
+| Throughput at 4K@60 | ~0.5 Gpixels/s (8.3 MP × 60) |
+| Bandwidth at 12 bpp, 4K@60 | ≈0.75 GB/s from sensor to ISP |
 | Color information per pixel | Only 1 of R, G, B — the other two are *missing* |
 
 The raw file literally looks dark and greenish if you display it directly — the missing color channels and non-linear sensor response make it perceptually wrong. The ISP's job is to fix all of that, in order, at wire speed.
@@ -50,7 +50,7 @@ The ISP is a **pipeline of fixed-function stages**, each chained to the next. Pi
 <div class="diagram">
 <div class="diagram-title">The ISP Camera Pipeline (Bayer RAW → Processed Image)</div>
 <div class="flow">
-  <div class="flow-node accent wide">1. Bayer RAW Input<br/><small>10–14 bpp · e.g. 12.6 GB/s at 200 MP@5fps</small></div>
+  <div class="flow-node accent wide">1. Bayer RAW Input<br/><small>10–14 bpp · e.g. ~1.75 GB/s (14 Gb/s) at 200 MP@5fps</small></div>
   <div class="flow-arrow accent"></div>
   <div class="flow-node green wide">2. Black Level Correction<br/><small>subtract dark current offset per channel</small></div>
   <div class="flow-arrow accent"></div>
@@ -139,7 +139,7 @@ The most computationally demanding stage. Photon shot noise (Poisson) and read n
 - **Spatial NR:** a bilateral filter or guided filter — a weighted average of nearby pixels, with weights that decay with both spatial distance *and* color difference, so edges are not blurred. Kernel size is typically 5×5 to 9×9.
 - **Temporal NR (TNR):** align the current frame to the previous frame (motion estimation), then blend them. This halves noise variance per frame blended ($\sigma^2 \to \sigma^2/n$), at the cost of requiring a full-resolution motion-compensated reference frame in DDR (≈12–24 MB for 12MP at 16 bpp).
 
-**Power consumption note:** NR on a modern phone ISP (e.g., Qualcomm Spectra, Apple) accounts for ~40–60% of the ISP's power budget — typically 50–150 mW for the NR block alone at 4K@30.
+**Power note:** noise reduction, especially temporal NR with motion compensation, is usually the most power-hungry stage of a phone ISP, because it reads and writes reference frames from DRAM.
 
 ### Stage 7 — Color Correction Matrix (CCM)
 
@@ -147,7 +147,7 @@ The sensor's spectral sensitivity is not sRGB — different sensors have differe
 
 $$\begin{pmatrix} R_{sRGB} \\ G_{sRGB} \\ B_{sRGB} \end{pmatrix} = M_{3\times3} \begin{pmatrix} R_{sensor} \\ G_{sensor} \\ B_{sensor} \end{pmatrix}$$
 
-For a 12 MP image at 4K@60, this is $12 \times 10^6 \times 60 \times 9 = 6.48 \times 10^9$ multiply-adds per second — exactly why a dedicated multiply-accumulate datapath handles it in hardware.
+For a 12 MP stream at 60 fps, this is $12 \times 10^6 \times 60 \times 9 = 6.48 \times 10^9$ multiply-adds per second — exactly why a dedicated multiply-accumulate datapath handles it in hardware.
 
 ### Stage 8 — Tone Mapping
 
@@ -233,9 +233,9 @@ Modern ISPs add a **programmable SIMD core** (sometimes called an "ISP processor
 </div>
 </div>
 
-Qualcomm's **Spectra ISP** (Snapdragon 8 Gen series) uses a VLIW-SIMD core called the "Hexagon Vector eXtensions" front-end that can run custom convolution kernels in the ISP pipeline — letting Qualcomm ship firmware updates that improve NR without hardware changes. The Spectra 680 (Snapdragon 8 Gen 2) supports up to **3.2 Gpix/s** across three cameras simultaneously.
+Qualcomm pairs its **Spectra ISP** with the Hexagon DSP's vector units and the NPU (marketed as a "cognitive ISP"), so custom kernels and learned models can run inside the camera pipeline and be updated with firmware.
 
-Apple's ISP (M3/A17) is tightly coupled to the Neural Engine and can pass intermediate pipeline outputs directly to the ANE without going to DRAM — **zero-copy** from camera to neural inference, a critical power saving.
+Apple couples its ISP tightly with the Neural Engine (the "Photonic Engine" pipeline): learned processing runs early on uncompressed image data. Apple does not publish how much traffic avoids DRAM, but keeping frames in on-chip buffers between ISP and NPU is the main power lever in any such design.
 
 ---
 
@@ -285,6 +285,11 @@ At 4K@60 with temporal NR (requiring a reference frame): ~3.5–4 GB/s — a sig
 
 ---
 
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Your detector was trained on photos processed by one phone's ISP and deployed on another's. The ISP choices (noise reduction strength, sharpening, tone curve) are baked into every pixel the model sees. Would you rather fine-tune on the new ISP's output, train on RAW and own the pipeline, or ask for a minimally processed stream, and what does each cost?</p>
+</div>
+
 ## HDR and Multi-Frame Processing
 
 Single-exposure images clip highlights (bright areas saturate to white) or lose shadows (dark areas drown in noise). **HDR** techniques blend multiple exposures.
@@ -297,7 +302,7 @@ The ISP can capture 3–5 frames at different exposures within a single "shutter
 2. **Merges** using a spatially-varying weight map (more weight from the exposure where local pixels are not blown/clipped)
 3. **Tone-maps** the merged HDR image to the display's range
 
-NVIDIA's **Multi-Frame NR** and Apple's **Smart HDR** (combining up to 9 frames) are both implemented as ISP + Neural Engine pipelines, with the ISP handling motion compensation and the NPU doing learned merge/tone-map.
+Google's **HDR+** burst merging and Apple's **Smart HDR** and **Deep Fusion** (combining up to nine frames) are implemented as ISP + NPU pipelines, with the ISP handling capture, alignment and the classical stages and the NPU doing learned merge, denoise or tone mapping.
 
 ### Computational Photography and the ISP↔NPU Handoff
 
@@ -318,7 +323,7 @@ NVIDIA's **Multi-Frame NR** and Apple's **Smart HDR** (combining up to 9 frames)
 </div>
 </div>
 
-Google's Tensor G3 ISP ("Tensor ISP") has a dedicated "**Semantic Segmentation ISP**" feature — the ISP can request a per-pixel class label from a 17-class semantic segmentation model running on the NPU in real time, and use those labels to apply different NR/sharpening parameters per region (e.g., extra NR on sky, less on faces to preserve skin texture). This is the ISP treating NPU output as a control signal.
+Recent phone pipelines (Google Tensor, Qualcomm's cognitive ISP, Apple's) also apply **different processing per semantic region**: segmentation masks computed on the NPU tell the ISP to treat sky, skin, hair and text differently, a direct ISP↔NPU feedback loop.
 
 ---
 
@@ -374,7 +379,7 @@ The boundary between classical ISP and neural network is dissolving. Several ISP
 | Demosaicing | AHD, LMMSE | Small CNN (e.g., 3×3 conv, ~5 layers, 0.5M params) |
 | Noise reduction | Bilateral, BM3D | DnCNN, FFDNet, camera-specific learned NR |
 | HDR merge | Exposure bracketing + Laplacian pyramid | U-Net or attention-based merge |
-| Face enhancement | Guided filter, frequency separation | GAN-based enhancement (ArcFace-conditioned) |
+| Face and portrait enhancement | Guided filter, frequency separation | Small learned enhancement networks applied to face regions |
 | Tone mapping | Global gamma + local | Lightweight Transformer or CNN |
 
 **Constraint:** these learned ISP stages run on an NPU at real-time video rates. At 4K@30 = 30 frames/second, you have **33 ms per frame** budget. A typical learned NR model with ~1M parameters at INT8 costs ~10M MACs/pixel × 8M pixels = 80G MACs/frame. At 10 TOPS (INT8 NPU), that is 8 ms — feasible, but it consumes most of a mid-tier NPU's budget.
@@ -400,7 +405,7 @@ If you build or deploy vision models on hardware with cameras, the ISP is your s
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Bandwidth Budget</div>
-    <div class="card-desc">ISP and NPU share DDR bandwidth. On budget SoCs (&lt;30 GB/s), the ISP alone can consume 30–50% of available bandwidth. Schedule ISP and NPU inference to avoid contention.</div>
+    <div class="card-desc">ISP and NPU share DRAM bandwidth. A 4K@60 ISP with temporal NR moves several GB/s, a noticeable share of a budget SoC's 20–30 GB/s. Schedule ISP and NPU work to avoid contention.</div>
   </div>
   <div class="diagram-card purple">
     <div class="card-title">Latency Path</div>
@@ -429,8 +434,39 @@ If you build or deploy vision models on hardware with cameras, the ISP is your s
 - **Computational photography** (Night Sight, Smart HDR, Portrait mode) is ISP + NPU co-execution — the ISP handles motion alignment and fixed-function stages; the NPU runs learned merge, enhancement, and semantic segmentation.
 - For ML practitioners: know your ISP's output format and pipeline settings — they determine your model's input distribution and your bandwidth budget on shared-memory SoCs.
 
+## Check Yourself
+
+<details class="check">
+<summary>How much raw sensor bandwidth does a 50 MP sensor at 30 fps and 12 bits per pixel produce?</summary>
+<p>50 × 10⁶ × 30 × 12 = 18 Gb/s ≈ 2.25 GB/s, which needs four to six MIPI CSI-2 lanes at 3–4.5 Gb/s each.</p>
+</details>
+
+<details class="check">
+<summary>Why do Bayer sensors have twice as many green pixels as red or blue?</summary>
+<p>Human luminance perception is dominated by green wavelengths, so extra green samples reduce luminance noise and aliasing where the eye is most sensitive.</p>
+</details>
+
+<details class="check">
+<summary>Why is a dedicated ISP more power-efficient than running the same pipeline on a GPU?</summary>
+<p>Each stage is a fixed-function datapath streaming over line buffers: no instruction fetch, no full-frame round trips to DRAM between stages, and exactly the bit widths needed. A GPU must store intermediates in memory and pays instruction and data-movement overhead per pixel.</p>
+</details>
+
+<details class="check">
+<summary>When would you train a vision model on RAW data instead of ISP output?</summary>
+<p>When you control the whole device pipeline and the ISP destroys information the task needs (low-light detail, true colour, small high-frequency features), or when one model must work across many sensors and you want it independent of each vendor's tuning.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| A Software Platform for Manipulating the Camera Imaging Pipeline | H. Karaimer, M. Brown, ECCV 2016 | [doi.org/10.1007/978-3-319-46448-0_26](https://doi.org/10.1007/978-3-319-46448-0_26) | The stages of a camera ISP and their effect on images |
+| Burst photography for high dynamic range and low-light imaging on mobile cameras (HDR+) | S. Hasinoff et al., SIGGRAPH Asia 2016 | [doi.org/10.1145/2980179.2980254](https://doi.org/10.1145/2980179.2980254) | Burst alignment and merging in a phone pipeline |
+| MIPI CSI-2 specification overview | MIPI Alliance | [mipi.org/specifications/csi-2](https://www.mipi.org/specifications/csi-2) | Camera serial interface lanes and data rates |
+| Learning to See in the Dark | C. Chen et al., CVPR 2018 | [arxiv.org/abs/1805.01934](https://arxiv.org/abs/1805.01934) | Learned RAW-to-RGB processing replacing the classical ISP |
+
 ---
 
-*Next: [Chapter 20 — FPGAs](./20_fpgas.md), where we move to the other end of the flexibility spectrum: reconfigurable logic that you can rewire in software.*
+**Next:** [Chapter 20 — FPGAs](./20_fpgas.md) — We move to the other end of the flexibility spectrum: reconfigurable logic that you can rewire in software.
 
 [← Back to Table of Contents](./README.md)

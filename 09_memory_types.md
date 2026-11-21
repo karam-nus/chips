@@ -25,7 +25,7 @@ No single memory technology is fast enough, big enough, and cheap enough to sati
   <div class="layer">L1 Cache — 32–128 KB, ~1–4 ns, on-core, ~3–6 TB/s</div>
   <div class="layer">L2 Cache — 256 KB–4 MB, ~4–12 ns, on-core or shared, ~1–2 TB/s</div>
   <div class="layer">L3 Cache — 4–512 MB, ~20–50 ns, shared across cores, ~200–500 GB/s</div>
-  <div class="layer">Main DRAM (DDR5 / LPDDR5 / HBM) — 4–1000+ GB, ~60–100 ns, ~50–3350 GB/s</div>
+  <div class="layer">Main memory (DDR5 / LPDDR5X / GDDR7 / HBM3e / HBM4) — 4 GB–6 TB, ~80–120 ns, ~50–20,000 GB/s</div>
   <div class="layer">NVMe SSD (NAND Flash) — 1–30+ TB, ~100 µs, ~7 GB/s</div>
   <div class="layer">HDD / Object Storage — PB scale, ms–seconds, ~0.2 GB/s</div>
 </div>
@@ -33,18 +33,18 @@ No single memory technology is fast enough, big enough, and cheap enough to sati
 
 ### The Hierarchy at a Glance
 
-| Level | Typical Size | Latency (approx.) | Bandwidth | Cost/GB (2025 approx.) | Volatile? |
+| Level | Typical Size | Latency (approx.) | Bandwidth | Relative cost/GB | Volatile? |
 |-------|:---:|:---:|:---:|:---:|:---:|
 | Registers | 1–4 KB | < 1 ns / 1 cycle | ~TB/s (per core) | N/A (on-core) | Yes |
 | L1 Cache | 32–128 KB | 1–4 ns / 4–12 cycles | 3–6 TB/s | N/A (on-core) | Yes |
 | L2 Cache | 256 KB–16 MB | 5–15 ns / 15–50 cycles | 1–2 TB/s | N/A (on-die) | Yes |
 | L3 Cache | 8–512 MB | 20–50 ns / 60–150 cycles | 200–500 GB/s | N/A (on-die) | Yes |
-| DRAM (DDR5) | 8–512 GB | 60–100 ns / 200–300 cycles | 50–90 GB/s | ~$3–5/GB | Yes |
-| HBM3 (GPU VRAM) | 16–192 GB | ~100 ns | 1,200–3,350 GB/s | ~$30–80/GB | Yes |
+| DRAM (DDR5) | 8 GB–6 TB per server | 80–120 ns load-to-use | 50–70 GB/s per channel | 1× (reference) | Yes |
+| HBM3e / HBM4 (accelerator memory) | 80–432 GB per package | ~100–150 ns | 3,350–20,000 GB/s per package | several × DDR5 | Yes |
 | NVMe SSD | 500 GB–32 TB | 50–200 µs | 3–14 GB/s | ~$0.08–0.15/GB | **No** |
 | HDD | 1–30 TB | 5–20 ms | 0.1–0.3 GB/s | ~$0.02–0.03/GB | **No** |
 
-> Numbers are representative of 2024–2025 consumer/datacenter hardware. Always consult datasheets for exact specs.
+> Numbers are representative of 2025–2026 consumer and datacenter hardware; always consult datasheets for exact specs. DRAM prices swung sharply in 2025–26 as AI demand absorbed capacity (HBM wafers crowd out commodity DRAM), so treat cost columns as relative, not absolute.
 
 ---
 
@@ -74,10 +74,10 @@ Two cross-coupled CMOS inverters (4 transistors) store the bit in a **stable sta
 ### Why SRAM is Fast, Big, and Expensive
 
 - **Fast:** No refresh required; sense amplifiers detect tiny voltage differentials in ~1 ns; direct random access.
-- **Large cell area:** 6 transistors per bit vs 1 transistor + 1 capacitor for DRAM. An SRAM cell in a 5 nm process is roughly **0.021–0.030 µm²** per bit; DRAM is ~0.002–0.006 µm² per bit — SRAM is ~5–10× larger.
+- **Large cell area:** 6 transistors per bit vs 1 transistor + 1 capacitor for DRAM. A high-density SRAM bitcell at TSMC N5 is about **0.021 µm²**, and it barely shrank at N3E (still ~0.021 µm²); N2's nanosheets bring it to roughly 0.0175 µm². A current DRAM cell is ~0.001–0.002 µm², so SRAM is 10–20× larger per bit. **SRAM no longer scales like logic**, which is why designers now move large caches onto separate, older-node dies (AMD 3D V-Cache) instead of growing them on the leading-edge die.
 - **No refresh:** Access latency is symmetric (no waiting for row activation).
 
-At the chip level, an H100 GPU has roughly **50 MB of on-chip SRAM** distributed across 132 SMs (shared memory + L1 cache + register file). By contrast, the 80 GB HBM is off-chip. The on-chip SRAM runs at ~TB/s bandwidth; the HBM runs at ~3.35 TB/s but with 100 ns latency.
+At the chip level, an H100 GPU has roughly **115 MB of on-chip SRAM**: 33 MB of registers and 33 MB of L1/shared memory spread over 132 SMs, plus a 50 MB L2. By contrast, the 80 GB HBM is off-chip. The on-chip SRAM runs at ~TB/s bandwidth; the HBM runs at ~3.35 TB/s but with 100 ns latency.
 
 ---
 
@@ -104,7 +104,7 @@ The **capacitor** stores the bit as charge (charged ≈ 1, discharged ≈ 0). Th
 
 The capacitor **leaks** charge over time (junction leakage through the transistor, dielectric leakage through the capacitor). Within **~64 ms** (the DRAM spec), the charge decays enough to lose the bit. Every DRAM bank must be **refreshed** — read and rewritten — at least every 64 ms (the `tREFI` interval, typically 7.8 µs per row). This means:
 
-- ~1–3% of total DRAM bandwidth is consumed by refresh operations
+- A few percent of DRAM bandwidth goes to refresh, more for the largest (32 Gb) DDR5 dies; DDR5's same-bank refresh lets other banks keep working meanwhile
 - All accesses to a row being refreshed must wait (the **refresh stall**)
 - Higher temperature → faster leakage → more frequent refresh → higher overhead
 
@@ -114,13 +114,14 @@ DRAM access is not simple. A **row** must first be opened (**activated**), the d
 
 | Timing | Meaning | Typical DDR5 value |
 |--------|---------|:-:|
-| `tRCD` | Row → Column Delay (RAS to CAS) | 16–40 ns |
-| `tCL` | CAS Latency (column → data out) | 14–32 ns |
-| `tRP` | Row Precharge (close row) | 16–40 ns |
-| `tRAS` | Row Active time (min) | 32–70 ns |
-| Full random access | `tRCD + tCL + tRP` ≈ | **60–100 ns** |
+| `tRCD` | Row → Column Delay (RAS to CAS) | ~14–18 ns |
+| `tCL` | CAS Latency (column → data out) | ~14–18 ns |
+| `tRP` | Row Precharge (close row) | ~14–18 ns |
+| `tRAS` | Row Active time (min) | ~32 ns |
+| Row miss at the DRAM | `tRP + tRCD + tCL` ≈ | **~45–55 ns** |
+| Load-to-use seen by a CPU core | + controller, fabric, queues | **~80–120 ns** |
 
-This ~70 ns random access latency is why DRAM-bound workloads with poor locality are slow — every cache miss pays this price.
+This ~100 ns random access latency is why DRAM-bound workloads with poor locality are slow: every cache miss pays it. The DRAM cell itself has barely sped up in twenty years; what grew is bandwidth, by fetching wider bursts from more banks in parallel.
 
 ---
 
@@ -132,7 +133,7 @@ The DRAM cell itself is universal, but the **interface and packaging** determine
 
 **DDR5** (Double Data Rate 5, JEDEC JESD79-5) is the current mainstream server/desktop DRAM standard.
 
-- **Transfer rate:** 4,800–7,200 MT/s per channel (MT = megatransfers)
+- **Transfer rate:** 4,800–6,400 MT/s on mainstream DIMMs; MRDIMMs (multiplexed-rank) reach 8,800 MT/s on Intel Xeon 6
 - **Bus width:** 32 or 64 bits per channel (with ECC: 72 bits)
 - **Bandwidth:** 1 channel × 64-bit bus × 6,400 MT/s = ~51.2 GB/s per channel; dual-channel ≈ 102 GB/s
 - **Capacity:** Modules from 16 GB to 256 GB (server RDIMM)
@@ -145,27 +146,27 @@ For ML, host memory speed matters for data loading, CPU-side preprocessing, and 
 
 **Low-Power DDR5** sacrifices some bandwidth for dramatically lower power — critical for phones and edge AI hardware.
 
-- **Transfer rate:** LPDDR5X up to 8,533 MT/s; Apple LPDDR5 on M3 ≈ 6,400 MT/s per channel
+- **Transfer rate:** LPDDR5X now ships at 8,533–10,700 MT/s; Apple M4 Max runs LPDDR5X-8533
 - **Bus width:** 32 or 64 bits (multiple channels in parallel on SoC)
-- **Bandwidth:** Apple M3 Max: 6 channels × 32-bit × 6,400 MT/s ≈ ~300 GB/s
+- **Bandwidth:** Apple M4 Max: 512-bit bus × 8,533 MT/s ÷ 8 ≈ **546 GB/s**; the base M5 reaches 153 GB/s
 - **Voltage:** 1.05 V (LPDDR5X: 0.9 V)
 - **Where used:** Smartphone SoCs (Snapdragon, Dimensity), Apple M-series, edge NPUs, Renesas automotive SoCs
 
-Apple's M3 Ultra unified memory runs at 800 GB/s, making it competitive with older GPU VRAM for certain workloads. The "unified" part means CPU and GPU share the same LPDDR5 pool — no PCIe copy overhead.
+Apple's M3 Ultra (2025 Mac Studio) runs 819 GB/s to up to 512 GB of unified memory, enough to hold a 4-bit 400B-parameter model, and competitive in bandwidth with older datacenter GPUs. The "unified" part means CPU, GPU and Neural Engine share the same pool: no PCIe copy overhead.
 
 ### GDDR6 / GDDR6X — Consumer GPU VRAM
 
 **Graphics DDR** is optimized for high-bandwidth GPU memory, sacrificing capacity and power efficiency for raw throughput.
 
-- **GDDR6 transfer rate:** up to 16–18 Gbps per pin
+- **GDDR6 transfer rate:** up to 16–20 Gbps per pin; **GDDR7** (2025, RTX 50 series) uses three-level **PAM3** signaling at 28–32 Gbps, heading to 36+
 - **GDDR6X** (NVIDIA): uses **PAM4 signaling** (4 voltage levels vs 2 in NRZ) to reach 21–23 Gbps per pin
 - **Bus width:** 256 or 384 bits (multiple GDDR chips in parallel)
 - **Bandwidth:** RTX 4090: 384-bit × 21 Gbps = ~1,008 GB/s
-- **Capacity:** 8–24 GB per GPU
+- **Capacity:** 8–32 GB on consumer cards (RTX 5090: 32 GB on a 512-bit bus, 1,792 GB/s); up to 96 GB on workstation boards
 - **Voltage:** ~1.35 V (GDDR6), ~1.36 V (GDDR6X)
-- **Where used:** Consumer/prosumer NVIDIA/AMD GPUs (RTX 3000/4000/5000, RX 7000 series)
+- **Where used:** Consumer and workstation GPUs (RTX 40/50, RTX PRO, Radeon RX 9000), and inference cards that trade bandwidth for cost
 
-GDDR6/6X has high bandwidth but is **planar** — chips sit beside the GPU die on the PCB. This limits how close they are and imposes a practical bus width ceiling of ~384 bits.
+GDDR6/6X has high bandwidth but is **planar** — chips sit beside the GPU die on the PCB. This limits how close they are and caps the bus at roughly 384–512 bits: every extra 32 bits is another chip and another set of fast traces on the board.
 
 ### HBM2e / HBM3 / HBM3e — High Bandwidth Memory
 
@@ -194,12 +195,29 @@ The key advantage: the **memory bus width is enormous** — 1,024 bits *per HBM 
 
 ### HBM Version Comparison
 
+Sliced open, an HBM package looks like this (not to scale; an HBM3e stack is ~0.7 mm tall and each DRAM die is thinned to ~30–50 µm):
+
+<div class="xsec">
+<div class="xs-row"><div class="xs dram">DRAM die 12</div><div class="xs gap" style="flex:2.2"></div><div class="xs dram">DRAM die 12</div></div>
+<div class="xs-row"><div class="xs tsv">⋮ TSVs through every die</div><div class="xs gap" style="flex:2.2"></div><div class="xs tsv">⋮</div></div>
+<div class="xs-row"><div class="xs dram">DRAM die 1</div><div class="xs gap" style="flex:2.2"></div><div class="xs dram">DRAM die 1</div></div>
+<div class="xs-row"><div class="xs die">HBM base (logic) die<small>PHY, test, repair</small></div><div class="xs die" style="flex:2.2">GPU / compute die<small>HBM controllers + PHYs on its edges</small></div><div class="xs die">HBM base die</div></div>
+<div class="xs-row"><div class="xs bump"></div><div class="xs bump" style="flex:2.2"></div><div class="xs bump"></div></div>
+<div class="xs-row"><div class="xs interposer" style="flex:4.2">Silicon interposer (CoWoS-S) or RDL + bridges (CoWoS-L): ~1,000–2,000 wires per stack, a few mm long</div></div>
+<div class="xs-row"><div class="xs bump" style="flex:4.2"></div></div>
+<div class="xs-row"><div class="xs substrate" style="flex:4.2">Organic package substrate<small>fans the signals out to ~0.4–1 mm ball pitch</small></div></div>
+<div class="xs-row"><div class="xs board" style="flex:4.2">Board / OAM module</div></div>
+</div>
+
 | Version | Per-Stack BW | Capacity/stack | Stacked dies | Where used |
 |---------|:---:|:---:|:---:|---|
-| HBM2 | 256 GB/s | 4–8 GB | 4–8 | AMD Vega, A100 (early) |
-| HBM2e | 460 GB/s | 8–16 GB | 8 | NVIDIA A100, AMD MI250X |
-| HBM3 | 819 GB/s | 16–24 GB | 12 | NVIDIA H100, AMD MI300X |
-| HBM3e | 1,200 GB/s | 24–36 GB | 12–16 | NVIDIA H200, AMD MI325X |
+| HBM2 | 256–307 GB/s | 4–8 GB | 4–8 | V100, A100 40GB, AMD Vega |
+| HBM2e | 410–460 GB/s | 8–16 GB | 8 | A100 80GB, MI250X, TPU v5p, Gaudi 3 |
+| HBM3 | up to 819 GB/s | 16–24 GB | 8–12 | H100, MI300X |
+| HBM3e | ~1.2 TB/s | 24–36 GB | 8–12 | H200, B200/B300, MI325X/MI355X, Ironwood, Trainium3 |
+| **HBM4** | ~2–2.8 TB/s (2,048-bit interface) | 24–64 GB | 12–16 | Rubin, MI455X (2026) |
+
+HBM4 (JEDEC JESD270-4, April 2025) doubles the interface to 2,048 bits per stack, so it gains bandwidth mostly by going wider rather than faster, and allows the base die to be built on a logic process (TSMC N12/N3) so accelerator vendors can put custom logic under the DRAM. Samsung and Micron began volume shipments in early 2026.
 
 ### Bandwidth and Capacity: Full System Examples
 
@@ -207,10 +225,14 @@ The key advantage: the **memory bus width is enormous** — 1,024 bits *per HBM 
 |----------------|------------|:---:|:---:|:---:|
 | NVIDIA A100 SXM4 | HBM2e | 5 | 2,000 GB/s | 80 GB |
 | NVIDIA H100 SXM5 | HBM3 | 5 | 3,350 GB/s | 80 GB |
-| NVIDIA H200 SXM | HBM3e | 5 | 4,800 GB/s | 141 GB |
+| NVIDIA H200 SXM | HBM3e | 6 | 4,800 GB/s | 141 GB |
+| NVIDIA B200 | HBM3e | 8 | 8,000 GB/s | 180–192 GB |
+| AMD MI355X | HBM3e | 8 | 8,000 GB/s | 288 GB |
+| NVIDIA Rubin (2026) | HBM4 | 8 | ~20,000–22,000 GB/s | 288 GB |
+| AMD MI455X (2026) | HBM4 | 12 | ~19,600 GB/s | 432 GB |
 | AMD MI300X | HBM3 | 8 | 5,300 GB/s | 192 GB |
-| RTX 4090 | GDDR6X | — | 1,008 GB/s | 24 GB |
-| Apple M3 Ultra | LPDDR5 | — | ~800 GB/s | 192 GB |
+| RTX 5090 | GDDR7 | — | 1,792 GB/s | 32 GB |
+| Apple M3 Ultra | LPDDR5 | — | ~819 GB/s | up to 512 GB |
 
 ---
 
@@ -222,9 +244,9 @@ The key advantage: the **memory bus width is enormous** — 1,024 bits *per HBM 
   <div class="compare-side left">
     <div class="compare-title">High Bandwidth (HBM3e / GDDR6X)</div>
     <ul>
-      <li>1,200–5,300 GB/s bandwidth</li>
+      <li>1,000–22,000 GB/s per package</li>
       <li>Small capacity (16–192 GB)</li>
-      <li>Very high cost ($30–80/GB)</li>
+      <li>Highest cost per GB, and supply-constrained</li>
       <li>Close to compute die (short traces → low latency)</li>
       <li>Used in datacenter GPUs, AI accelerators</li>
     </ul>
@@ -257,7 +279,7 @@ The key advantage: the **memory bus width is enormous** — 1,024 bits *per HBM 
 | TLC (Triple-Level Cell) | 3 | ~100–200 µs | ~1,000–3,000 cycles | Most consumer SSDs |
 | QLC (Quad-Level Cell) | 4 | ~200–400 µs | ~100–1,000 cycles | Cold storage, bulk data |
 
-Modern **3D NAND** (64–232 layers) stacks NAND cells vertically to increase density and improve endurance vs planar NAND. A **NVMe SSD** (e.g., Samsung 990 Pro) achieves ~7.5 GB/s sequential read over PCIe 5.0 × 4 — fast for storage, but 500× slower than HBM3.
+Modern **3D NAND** (200–330+ layers in 2025–26 parts) stacks NAND cells vertically to increase density and improve endurance vs planar NAND. An **NVMe SSD** reaches ~7 GB/s sequential read over PCIe 4.0 ×4 (Samsung 990 Pro) and ~14 GB/s over PCIe 5.0 ×4 (Samsung 9100 Pro) — fast for storage, but 500× slower than HBM3.
 
 For ML: SSDs matter for **dataset streaming** (loading training data faster than it is consumed by the GPU) and **model offloading** (ZeRO-Infinity, DeepSpeed with NVMe offload). NVMe SSDs at 7 GB/s can feed a GPU preprocessing pipeline but cannot substitute for VRAM.
 
@@ -321,7 +343,7 @@ Model       fp32    bf16    int8    int4  (GB)
 405B     1620.0   810.0   405.0   202.5
 ```
 
-> A 70B model in BF16 needs **140 GB** of VRAM — that's two H100-80GB GPUs just for weights. With KV-cache for a 32K context, optimizer states for fine-tuning (8× extra for Adam), and activations, the real requirement grows substantially.
+> A 70B model in BF16 needs **140 GB** of VRAM — that's two H100-80GB GPUs just for weights. With KV-cache for a 32K context, full fine-tuning (Adam in mixed precision needs ~16 bytes per parameter in total, 8× the BF16 weights), and activations, the real requirement grows substantially.
 
 ```python
 # --- HBM bandwidth and capacity constraints for inference ---
@@ -350,13 +372,20 @@ During autoregressive inference (token-by-token generation), each forward pass t
 
 $$\text{Bytes loaded} = d_{\text{model}} \times d_{\text{ff}} \times 2 \text{ bytes}$$
 
-For LLaMA-2 70B: $d_{\text{model}} = 8192$, $d_{\text{ff}} = 28672$. One FFN layer = $2 \times 8192 \times 28672 \approx 0.47$ GB per layer. With 80 layers ≈ **37 GB** of weight reads per token. At HBM3's 3.35 TB/s:
+For LLaMA-2 70B at batch size 1, *every* weight is read once per generated token: $70 \times 10^9 \times 2$ bytes $= 140$ GB per token in BF16. The model does not fit on one 80 GB H100, so assume it is split across four with tensor parallelism, whose HBM bandwidths add:
 
-$$\text{Time per token} = \frac{37 \text{ GB}}{3,350 \text{ GB/s}} \approx 11 \text{ ms} \approx 90 \text{ tokens/s}$$
+$$\text{Time per token} \ge \frac{140 \text{ GB}}{4 \times 3.35 \text{ TB/s}} \approx 10.4 \text{ ms} \;\Rightarrow\; \le 96 \text{ tokens/s}$$
 
-This is within striking distance of observed throughput (~40–80 tokens/s on H100 for 70B), confirming that **decode is bandwidth-bound, not compute-bound**. Quantization to INT8 halves the byte count → ~doubles tokens/s — a purely bandwidth-driven win.
+Measured batch-1 decode for 70B models on 4–8 H100s sits at roughly 40–70 % of that ceiling once communication, KV-cache reads and kernel launch overheads are added, confirming that **decode is bandwidth-bound, not compute-bound**: the GPUs perform only 140 GFLOP per token, about 0.1 % of their peak. Storing the weights in FP8 or INT8 halves the bytes and nearly doubles tokens/s; 4-bit roughly doubles it again. That is a purely bandwidth-driven win.
 
 ---
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>From HBM3 to HBM4 the per-pin speed barely changes; the bandwidth comes from doubling the wires per stack. What does that imply about where the next 2× must come from, and why are vendors now putting custom logic (and even compute) into the HBM base die?</p>
+</div>
+
+<div class="lab" data-lab="fit"><noscript><div class="lab-noscript">The will-it-fit lab needs JavaScript.</div></noscript></div>
 
 ## Why This Matters for Model Optimization
 
@@ -369,7 +398,7 @@ This is within striking distance of observed throughput (~40–80 tokens/s on H1
   </div>
   <div class="diagram-card green">
     <div class="card-title">HBM Bandwidth Caps Decode Speed</div>
-    <div class="card-desc">Autoregressive generation loads all weights per token. At 3.35 TB/s (H100), a 70B BF16 model yields ~90 tokens/s ceiling — bandwidth, not FLOP/s, sets the limit.</div>
+    <div class="card-desc">Batch-1 generation reads every weight per token: 140 GB for a 70B BF16 model. Each 3.35 TB/s H100 contributes ~24 tokens/s of ceiling, so four of them top out near 96 tokens/s. Bandwidth, not FLOP/s, sets the limit.</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Quantization is a Bandwidth Optimization</div>
@@ -377,11 +406,11 @@ This is within striking distance of observed throughput (~40–80 tokens/s on H1
   </div>
   <div class="diagram-card purple">
     <div class="card-title">KV Cache Competes with Weights</div>
-    <div class="card-desc">KV cache = 2 × layers × heads × head_dim × seq_len × dtype_bytes. At 32K context, 70B LLaMA-2 in FP16 needs ~20 GB KV cache — competing with the 140 GB weights for VRAM.</div>
+    <div class="card-desc">KV cache = 2 × layers × KV heads × head_dim × seq_len × dtype_bytes. LLaMA-2 70B (GQA, 8 KV heads) needs 320 KB per token in BF16, ~10.7 GB per 32K-token sequence; a batch of 16 such requests needs more memory than the weights.</div>
   </div>
   <div class="diagram-card orange">
     <div class="card-title">HBM Pays for Itself in Throughput</div>
-    <div class="card-desc">HBM3 at $30–80/GB is 10–20× more expensive than DDR5. That premium buys 30–60× more bandwidth. For batch inference, this bandwidth translates directly into more requests/second.</div>
+    <div class="card-desc">HBM costs several times DDR5 per GB but delivers 50–100× the bandwidth per package (8 TB/s on a B200 vs ~0.5 TB/s for a 12-channel DDR5 socket). For memory-bound inference that bandwidth turns directly into tokens per second.</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">NVMe Offloading (ZeRO-Infinity)</div>
@@ -397,14 +426,52 @@ This is within striking distance of observed throughput (~40–80 tokens/s on H1
 - The **memory hierarchy** spans registers (~TB/s, KB) through DRAM (~GB/s–TB/s, GB) to SSD (~GB/s, TB): each level trades off speed, capacity, and cost.
 - **SRAM** (6T cell) is fast (~1 ns), but large and expensive — used for on-chip caches, register files, and GPU shared memory.
 - **DRAM** (1T1C cell) is dense and cheap but requires **periodic refresh** (charge leakage every ~64 ms) and has ~70 ns random latency.
-- **HBM** achieves extreme bandwidth (1,200–5,300 GB/s) by stacking DRAM dies vertically with TSVs and placing them millimeters from the compute die on an interposer, using a 1,024-bit-wide interface per stack.
-- **GDDR6/6X** achieves high bandwidth via fast per-pin signaling (~21 Gbps/pin, PAM4), used in consumer GPUs; lower cost than HBM but lower peak bandwidth at scale.
+- **HBM** achieves extreme bandwidth (~1.2 TB/s per HBM3e stack, ~2+ TB/s per HBM4 stack; 8–20+ TB/s per package) by stacking DRAM dies with TSVs and placing them millimetres from the compute die on an interposer, with a 1,024-bit interface per stack (2,048-bit for HBM4).
+- **GDDR6X/GDDR7** achieve high bandwidth via fast per-pin signaling (PAM4 at ~21–23 Gbps; PAM3 at 28–32+ Gbps), used in consumer and workstation GPUs: cheaper than HBM, but with far less bandwidth per package.
 - **LPDDR5** is a power-optimized DRAM for mobile/edge SoCs; Apple's unified memory architecture uses it to blur the CPU/GPU memory boundary.
 - For AI inference, **VRAM capacity** caps model size and KV-cache length; **HBM bandwidth** caps tokens-per-second in memory-bound autoregressive decode.
 - **Quantization** (INT8, INT4) primarily wins by **reducing bytes loaded per weight**, directly improving memory-bandwidth-limited throughput — capacity savings are a bonus, not the mechanism.
 
+## Check Yourself
+
+<details class="check">
+<summary>Why is SRAM 10–20× larger per bit than DRAM, and why has that gap stopped closing?</summary>
+<p>An SRAM bit is six transistors; a DRAM bit is one transistor and a capacitor stacked above it. Logic transistors kept shrinking, but SRAM's bitcell barely changed from N5 to N3E because its tightly matched transistors and wires stopped scaling, so caches now consume a growing share of leading-edge die area.</p>
+</details>
+
+<details class="check">
+<summary>A 70B model in BF16 runs batch-1 decode on four H100s. What is the bandwidth ceiling on tokens/s, and what single change would raise it most?</summary>
+<p>140 GB per token ÷ (4 × 3.35 TB/s) ≈ 10.4 ms, so ≤ ~96 tokens/s. Quantizing the weights to 4 bits cuts bytes per token ~4× (to ~35–40 GB including scales), raising the ceiling ~3.5–4×; more GPUs also help but add communication.</p>
+</details>
+
+<details class="check">
+<summary>How big is the KV cache for one 32K-token sequence on LLaMA-2 70B in BF16?</summary>
+<p>2 (K and V) × 80 layers × 8 KV heads × 128 dims × 2 bytes = 327,680 bytes ≈ 320 KB per token; × 32,768 tokens ≈ 10.7 GB.</p>
+</details>
+
+<details class="check">
+<summary>What does HBM4 change compared with HBM3e, and why?</summary>
+<p>It doubles the interface to 2,048 bits per stack instead of pushing per-pin speeds much higher, because faster signaling across thousands of short interposer wires costs too much power. It also lets the base die be built on a logic process, so vendors can add custom logic beneath the DRAM.</p>
+</details>
+
+<details class="check">
+<summary>Why do consumer GPUs use GDDR instead of HBM?</summary>
+<p>GDDR chips sit on an ordinary PCB beside the GPU and need no silicon interposer or advanced packaging, so they are far cheaper and not capacity-constrained by CoWoS. The price is a narrow bus (256–512 bits) and therefore much lower bandwidth and capacity per package.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| JEDEC JESD270-4 High Bandwidth Memory (HBM4) | JEDEC, 2025 | [jedec.org/standards-documents/docs/jesd270-4](https://www.jedec.org/standards-documents/docs/jesd270-4) | 2,048-bit interface, stack heights, base-die options |
+| JEDEC JESD79-5 DDR5 SDRAM | JEDEC | [jedec.org/standards-documents/docs/jesd79-5](https://www.jedec.org/standards-documents/docs/jesd79-5) | DDR5 timing parameters and sub-channel architecture |
+| Memory Systems: Cache, DRAM, Disk | B. Jacob, S. Ng, D. Wang, 2007 | [elsevier.com/books/memory-systems/jacob/978-0…](https://www.elsevier.com/books/memory-systems/jacob/978-0-12-379751-3) | DRAM organisation, timing and refresh |
+| NVIDIA H100 Tensor Core GPU Architecture | NVIDIA, 2022 | [resources.nvidia.com/en-us-tensor-core/gtc22-…](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper) | SM register file and L1/shared capacity, 50 MB L2, HBM3 configuration |
+| Efficient Memory Management for Large Language Model Serving with PagedAttention | W. Kwon et al., SOSP 2023 | [arxiv.org/abs/2309.06180](https://arxiv.org/abs/2309.06180) | KV-cache sizes and why they dominate serving memory |
+| Samsung and Micron begin shipping HBM4 | The Register, Feb 2026 | [theregister.com/2026/02/13/samsung_and_micron…](https://www.theregister.com/2026/02/13/samsung_and_micron_start_shipping/) | HBM4 production timing |
+
 ---
 
-*Next: [Chapter 10 — Memory Management](./10_memory_management.md), where we explore how the processor manages this hierarchy — virtual memory, TLBs, cache coherence, and NUMA — and why it matters for tensor layout, multi-GPU locality, and training performance.*
+**Next:** [Chapter 10 — Memory Management](./10_memory_management.md) — We explore how the processor manages this hierarchy — virtual memory, TLBs, cache coherence, and NUMA — and why it matters for tensor layout, multi-GPU locality, and training performance.
 
 [← Back to Table of Contents](./README.md)

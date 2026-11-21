@@ -145,16 +145,20 @@ A format only runs fast if the silicon has units wired for it. Here is the canon
 | Architecture (year) | New format support | Notable peak (dense) | The pattern |
 |---------------------|--------------------|----------------------|-------------|
 | **Volta** V100 (2017) | FP16 tensor cores | ~125 FP16 TFLOP/s | first tensor cores |
-| **Turing** T4 (2018) | + INT8, INT4 | ~130 FP16 / 260 INT8 TOPS | inference int formats |
+| **Turing** T4 (2018) | + INT8, INT4 | ~65 FP16 / 130 INT8 / 260 INT4 TOPS | inference int formats |
 | **Ampere** A100 (2020) | + **BF16**, **TF32** | ~312 BF16 / 624 INT8 | BF16 makes training easy |
 | **Hopper** H100 (2022) | + **FP8** (E4M3/E5M2) | ~990 BF16 / **1979 FP8** | FP8 doubles over BF16 |
-| **Blackwell** B200 (2024) | + **FP4 / microscaling** (MXFP, NVFP4) | ~2250 FP8 / **4500 FP4** | FP4 doubles over FP8 |
-| Google **TPU** v2→v5 | BF16 (native), INT8 | systolic 128×128+ MXU | BF16 was *born* on TPU |
-| AMD **CDNA** MI250→MI300 | FP16/BF16/FP8 (Matrix Cores) | competitive FP8 throughput | follows the same curve |
+| **Blackwell** B200 (2024) | + **FP4 / FP6 / microscaling** (MXFP, NVFP4) | ~2,250 BF16 / 4,500 FP8 / **9,000 FP4** | FP4 doubles over FP8 |
+| **Blackwell Ultra** B300 (2025) | FP4 rate raised; FP64 and INT8 cut | **~15,000 FP4** (FP8 unchanged at ~4,500) | area moved to the format that sells |
+| **Rubin** (2026) | NVFP4-centred tensor cores, HBM4 | ~35,000 NVFP4 (training) | FP4 becomes the headline format |
+| Google **TPU** v2 → TPU 8 | BF16 (native, v2) → INT8 (v4) → FP8 (Ironwood) → FP4 (TPU 8) | 128×128 → 256×256 MXUs | BF16 was *born* on TPU |
+| AMD **CDNA** MI250 → MI355X → MI455X | FP16/BF16 → FP8 (MI300, FNUZ variants) → OCP FP8, FP6, FP4 (MI355X) | MI355X: ~5,000 FP8 / ~10,000 FP6 and FP4 | FP6 runs at the FP4 rate |
 
 Read the throughput column top to bottom and a rule emerges:
 
 > **The "2× per precision halving" rule.** Each time the data width halves at the same architecture, peak throughput roughly **doubles**: H100 does ~990 BF16 vs ~1979 FP8 TFLOP/s; B200 does ~2× more in FP4 than FP8. The reason is exactly the multiplier cost: a narrower datatype lets you pack ~2× the MAC units in the same area *and* feed them with ~2× the effective bandwidth. Halve the bits → double the units → double the throughput.
+
+Blackwell Ultra and AMD's MI355X show the rule bending: vendors no longer split area evenly across formats. B300 gives FP4 3.3× its FP8 rate (and cuts INT8 and FP64), while MI355X runs FP6 as fast as FP4 so that customers can trade a little bandwidth for accuracy at no compute cost.
 
 ### Where the 2× rule stops helping
 
@@ -167,6 +171,19 @@ The rule is a guide, not a guarantee. It breaks down for several concrete reason
 - **Accuracy floors (Chapter 25).** A 2× speedup you can't use because the model's accuracy collapsed is not a speedup.
 
 ---
+
+<div class="specbars">
+<div class="sb-title">Dense tensor throughput by format · NVIDIA B300 (TFLOP/s)</div>
+<div class="sb-row"><span class="sb-name">BF16</span><span class="sb-track"><i class="k2" style="--v:0.15"></i></span><span class="sb-val">~2,250</span></div>
+<div class="sb-row"><span class="sb-name">FP8</span><span class="sb-track"><i class="k3" style="--v:0.30"></i></span><span class="sb-val">~4,500</span></div>
+<div class="sb-row"><span class="sb-name">FP4 (NVFP4)</span><span class="sb-track"><i style="--v:1"></i></span><span class="sb-val">~15,000</span></div>
+<div class="sb-note">Vendor dense figures (HGX B300). The FP8→FP4 step is 3.3×, not 2×: Blackwell Ultra spent extra area on its FP4 path.</div>
+</div>
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>If silicon area is now allocated unevenly across formats (FP4 gets 3.3× FP8 on B300; FP6 runs at FP4 speed on MI355X), then the "cheapest" format to compute in is a business decision as much as a physical one. How would you check, for a new chip, which format your model should target before you have the hardware in hand?</p>
+</div>
 
 ## The Memory & Bandwidth Side
 
@@ -206,7 +223,7 @@ Here is the theme that ties Chapters 23 and 24 together. The formats that won we
   </div>
   <div class="diagram-card green">
     <div class="card-title">TF32 (NVIDIA)</div>
-    <div class="card-desc">A *compute mode*, not a storage type: keep FP32's exponent, truncate the mantissa to 10 bits so the tensor-core multiplier is ~5× smaller — a drop-in FP32 speedup.</div>
+    <div class="card-desc">A <em>compute mode</em>, not a storage type: keep FP32's exponent, truncate the mantissa to 10 bits so the tensor-core multiplier is ~5× smaller — a drop-in FP32 speedup.</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">FP8 E4M3 / E5M2 (OCP)</div>
@@ -324,11 +341,11 @@ A single INT8×INT8 product can reach $127 \times 127 = 16{,}129$ — already fa
 <div class="diagram-grid cols-3">
   <div class="diagram-card accent">
     <div class="card-title">Speedups are a square law</div>
-    <div class="card-desc">FP32→FP8 isn't 4× cheaper, it's ~30× cheaper per multiply — because multiplier area ~ mantissa². This is *why* the low-precision payoff is so large, and why FP8/FP4 hardware exists.</div>
+    <div class="card-desc">FP32→FP8 isn't 4× cheaper, it's ~30× cheaper per multiply — because multiplier area ~ mantissa². This is <em>why</em> the low-precision payoff is so large, and why FP8/FP4 hardware exists.</div>
   </div>
   <div class="diagram-card green">
     <div class="card-title">Range is cheap, precision is dear</div>
-    <div class="card-desc">Widening the exponent (range) costs an O(N) adder; widening the mantissa (precision) costs an O(N²) multiplier. This is the hardware reason BF16 (wide exp, narrow mantissa) is both cheap *and* training-friendly.</div>
+    <div class="card-desc">Widening the exponent (range) costs an O(N) adder; widening the mantissa (precision) costs an O(N²) multiplier. This is the hardware reason BF16 (wide exp, narrow mantissa) is both cheap <em>and</em> training-friendly.</div>
   </div>
   <div class="diagram-card orange">
     <div class="card-title">The 2× rule, and its ceiling</div>
@@ -340,7 +357,7 @@ A single INT8×INT8 product can reach $127 \times 127 = 16{,}129$ — already fa
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Check your generation's matrix</div>
-    <div class="card-desc">FP8 needs Hopper+, FP4/microscaling needs Blackwell. Quantizing to a format your silicon lacks gives you the memory win but *not* the compute win — know what your chip actually accelerates.</div>
+    <div class="card-desc">FP8 needs Hopper, MI300, Gaudi 3, Ironwood or newer; FP4/microscaling needs Blackwell, MI355X, TPU 8 or Trainium3-class silicon. Quantizing to a format your silicon lacks gives you the memory win but <em>not</em> the compute win.</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">Two different wins to claim</div>
@@ -356,13 +373,46 @@ This chapter explained the *mechanism*: lower precision is faster because each a
 - A multiplier's area and energy scale with the **square of the mantissa (significand) width** — so removing mantissa bits yields outsized savings (FP8 multiply ≈ **35× smaller** than FP32, not 4×).
 - In a float multiply, only the **significand goes through the big $O(N^2)$ multiplier**; the exponent is just an $O(N)$ add. Hence **range is cheap, precision is expensive** — the silicon reason BF16 beats FP16 on cost.
 - **Tensor cores / MMA units** are physically wired for specific datatypes and do **low-precision multiply, FP32/INT32 accumulate** — store cheap, sum carefully — to avoid overflow, swamping, and catastrophic cancellation.
-- Per generation, hardware adds formats: **Volta (FP16) → Turing (+INT8/INT4) → Ampere (+BF16/TF32) → Hopper (+FP8) → Blackwell (+FP4/microscaling)**; TPUs were built around BF16.
+- Per generation, hardware adds formats: **Volta (FP16) → Turing (+INT8/INT4) → Ampere (+BF16/TF32) → Hopper (+FP8) → Blackwell (+FP4/FP6/microscaling) → Blackwell Ultra and Rubin (FP4-first)**; TPUs were built around BF16 and reached FP4 with TPU 8.
 - The **"2× per precision halving" rule** (e.g. H100 ~990 BF16 vs ~1979 FP8 TFLOP/s dense) comes from packing ~2× the MAC units in the same area; it is capped by accumulation, overhead, bandwidth, and accuracy.
 - The datatype sets **bytes/param**, so for **bandwidth-bound** workloads (LLM decode) the speedup comes from moving fewer bytes — independent of the compute 2× rule.
 - Modern ML formats (BF16, TF32, FP8, MXFP, NVFP4) were **co-designed** with the silicon and standardized through the OCP — a new accelerated format is a signal of where the cheap-and-good frontier moved.
 
+## Check Yourself
+
+<details class="check">
+<summary>By the N² rule, how much smaller is a BF16 multiplier than an FP16 multiplier?</summary>
+<p>BF16 has an 8-bit significand, FP16 an 11-bit one: (8/11)² ≈ 0.53, so roughly half the area. That is part of why BF16 tensor throughput equals FP16's on most chips even though BF16 carries more range.</p>
+</details>
+
+<details class="check">
+<summary>Why does the FP32 accumulator not shrink when inputs go from FP8 to FP4?</summary>
+<p>Accumulator width is set by the sum, not by the inputs: a dot product of thousands of products needs FP32 (or wide fixed-point) to avoid swamping and cancellation. As inputs shrink, the accumulator becomes a larger share of the MAC cost, which is what caps the 2× rule.</p>
+</details>
+
+<details class="check">
+<summary>A kernel is memory-bound in BF16. What speedup should you expect from FP8 weights on a chip with 2× FP8 compute?</summary>
+<p>Up to ~2× from halving the bytes moved, not from the faster multiplier: a memory-bound kernel was not using the compute it already had. The 2× compute rule only matters once the kernel becomes compute-bound.</p>
+</details>
+
+<details class="check">
+<summary>Why can't you get FP4 compute speedups on an H100 even if you store weights in FP4?</summary>
+<p>H100's tensor cores have no FP4 datapath; the weights must be dequantized to FP8 or BF16 before the multiply. You still save memory and bandwidth, but the math runs at the higher precision's rate.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Computing's Energy Problem (and what we can do about it) | M. Horowitz, ISSCC 2014 | [doi.org/10.1109/ISSCC.2014.6757323](https://doi.org/10.1109/ISSCC.2014.6757323) | Energy per operation vs bit width |
+| NVIDIA Blackwell Architecture Technical Brief | NVIDIA, 2024 | [resources.nvidia.com/en-us-blackwell-architec…](https://resources.nvidia.com/en-us-blackwell-architecture) | FP4/FP6 tensor cores and micro-tensor scaling |
+| NVIDIA GB300 NVL72 | NVIDIA, 2025 | [nvidia.com/en-us/data-center/gb300-nvl72](https://www.nvidia.com/en-us/data-center/gb300-nvl72/) | Blackwell Ultra per-format throughput |
+| AMD Instinct MI355X | AMD, 2025 | [amd.com/en/products/accelerators/instinct/mi3…](https://www.amd.com/en/products/accelerators/instinct/mi350/mi355x.html) | FP6 at FP4 rate; OCP FP8 |
+| NVIDIA Turing GPU Architecture (T4) | NVIDIA, 2018 | [images.nvidia.com/aem-dam/en-zz/Solutions/des…](https://images.nvidia.com/aem-dam/en-zz/Solutions/design-visualization/technologies/turing-architecture/NVIDIA-Turing-Architecture-Whitepaper.pdf) | INT8/INT4 tensor cores |
+| A Study of BFLOAT16 for Deep Learning Training | D. Kalamkar et al., 2019 | [arxiv.org/abs/1905.12322](https://arxiv.org/abs/1905.12322) | Why a wide exponent and narrow mantissa train well |
+
 ---
 
-*Next: [Chapter 25 — Quantization (Hardware View)](./25_quantization_hardware_view.md), where we turn this silicon mechanism into an accuracy/speed budget — how much low precision actually buys you, and exactly where it stops helping.*
+**Next:** [Chapter 25 — Quantization (Hardware View)](./25_quantization_hardware_view.md) — We turn this silicon mechanism into an accuracy/speed budget — how much low precision actually buys you, and exactly where it stops helping.
 
 [← Back to Table of Contents](./README.md)

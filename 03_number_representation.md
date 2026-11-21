@@ -26,7 +26,7 @@ The **bit** is the atom: 0 or 1. Eight bits form one **byte** (8 b). Beyond that
 | halfword / short | 16 | 2 | INT16, FP16, BF16 |
 | word | 32 | 4 | INT32, FP32, the default "float" in C |
 | doubleword / long | 64 | 8 | INT64, FP64 (double precision) |
-| quadword | 128 | 16 | SIMD lane width, INT128 |
+| quadword | 128 | 16 | One SSE/NEON SIMD register (e.g. 4 × FP32 lanes) |
 
 The width of a data type directly determines **memory consumption** and **bandwidth pressure**:
 
@@ -176,7 +176,7 @@ The **Q-format** notation (common in DSPs and embedded systems) writes this as *
 |--------|:----:|------:|----------:|
 | Q1.15 (Q15) | 16 | [−1, +1 − 2⁻¹⁵] | $2^{-15} \approx 3.05 \times 10^{-5}$ |
 | Q8.8 | 16 | [−128, +128 − 2⁻⁸] | $2^{-8} = 0.00391$ |
-| Q0.7 (INT8 interpreted as fraction) | 8 | [−1, +1 − 2⁻⁷] | $2^{-7} = 0.0078$ |
+| Q1.7 (INT8 interpreted as a fraction) | 8 | [−1, +1 − 2⁻⁷] | $2^{-7} = 0.0078$ |
 
 ```python
 def fixed_point_encode(value: float, fractional_bits: int, total_bits: int = 16) -> int:
@@ -289,7 +289,7 @@ def inspect_float32(f: float) -> dict:
         'bits':         f'{bits:032b}',
         'sign':         sign,
         'exp_raw':      exp_raw,
-        'exp_biased':   exp_val,
+        'exp_unbiased': exp_val,
         'mantissa_raw': f'{mant:023b}',
         'significand':  significand,
         'reconstructed': value
@@ -298,7 +298,7 @@ def inspect_float32(f: float) -> dict:
 for val in [1.0, -1.0, 0.5, 0.1, 3.14159, 1e-38, float('inf'), float('nan')]:
     d = inspect_float32(val)
     print(f"{str(val):10s}  bits={d['bits']}  "
-          f"S={d['sign']} E={d['exp_raw']:3d}({d['exp_biased']:+4d}) "
+          f"S={d['sign']} E={d['exp_raw']:3d}({d['exp_unbiased']:+4d}) "
           f"M=0b{d['mantissa_raw'][:8]}...  ≈{d['reconstructed']:.6g}")
 ```
 
@@ -310,7 +310,7 @@ Sample output (exact bits — not approximate):
 0.1         bits=00111101110011001100110011001101  S=0 E=123( -4) M=0b11001100...  ≈0.1
 ```
 
-Notice `0.1` has a repeating binary fraction — **0.1 is not exactly representable in binary floating point.** This is the root of floating-point rounding errors, and it directly causes loss accumulation instability in FP16 training.
+Notice `0.1` has a repeating binary fraction — **0.1 is not exactly representable in binary floating point.** The error in one stored value is tiny (half a unit in the last place); what hurts in practice is rounding error *accumulating* over millions of operations, as the examples below show.
 
 ### Using NumPy for Bit Inspection
 
@@ -330,11 +330,13 @@ print(f"1.0 = 0x{one:08X}")
 print(f"1.0+eps = 0x{one_plus:08X}")
 print(f"difference in ulps: {one_plus - one}")  # 1 ULP
 
-# Rounding error in summation
-a = np.float32(1e7)
+# Absorption: adding a small number to a large one
+a = np.float32(1e8)               # spacing between FP32 values near 1e8 is 8.0
 b = np.float32(1.0)
-print(f"1e7 + 1.0 = {a + b}")     # 10000000.0 — '1' is lost in FP32!
-print(f"1e7 + 1.0 = {a + b - a}")  # 0.0 — catastrophic cancellation
+print(np.spacing(a))              # 8.0
+print(a + b)                      # 1e+08 — the 1.0 is below half a spacing and vanishes
+print(a + b - a)                  # 0.0
+# (At 1e7 the spacing is exactly 1.0, so 1e7 + 1 is still representable.)
 ```
 
 ---
@@ -357,9 +359,9 @@ When $E = 0$ and mantissa $\neq 0$, the number is **subnormal** (also called den
 
 $$V_{\text{subnormal}} = (-1)^S \times 0.M \times 2^{-126}$$
 
-Subnormals fill the gap between zero and the smallest normalised number, providing **gradual underflow** — errors shrink gracefully toward zero instead of suddenly jumping to zero. The cost: subnormal arithmetic is much slower on GPUs (10–100× penalty) because it requires special hardware paths.
+Subnormals fill the gap between zero and the smallest normalised number, providing **gradual underflow** — errors shrink gracefully toward zero instead of suddenly jumping to zero. Their cost depends on the hardware: many x86 CPUs handle them with a microcode assist that can take on the order of 100 cycles per operation, while NVIDIA GPUs process FP32 and FP16 subnormals in the FMA pipeline at full speed.
 
-> In BF16 and FP8 training, subnormals are often **flushed to zero** (FTZ) for performance. This means gradient magnitudes below the smallest normal can disappear entirely — a real training instability to watch for when choosing formats.
+> Compilers and kernels can **flush subnormals to zero** (FTZ), e.g. `nvcc --use_fast_math` or the x86 FTZ/DAZ flags. On a GPU that buys little speed but removes the bottom of the range, so values below the smallest normal (6.1 × 10⁻⁵ in FP16) become exactly zero. For FP16 gradients that is a real risk; loss scaling exists to keep them above it.
 
 ### Special Values
 
@@ -398,6 +400,8 @@ When a result cannot be represented exactly, the hardware must **round**. IEEE-7
 | Round toward zero (truncate) | Chop off extra bits | Sometimes faster |
 | Round to nearest, ties away from zero | Common in school arithmetic | Rare in hardware |
 
+A sixth scheme matters in ML even though IEEE-754 does not define it: **stochastic rounding**, which rounds up with probability equal to the fractional distance to the next value. It is unbiased *in expectation*, so many tiny updates that RNE would round away still move a low-precision weight on average. Graphcore IPUs and AWS Trainium support it in hardware, and several FP8/FP4 training recipes use it for gradients.
+
 **Round to nearest ties to even (banker's rounding)** is the default for IEEE-754. "Ties to even" means when a result is exactly halfway between two representable values, round to whichever has an even LSB in the mantissa. This eliminates statistical bias in repeated rounding — important for long accumulations in ML training.
 
 ---
@@ -432,7 +436,15 @@ This is the most important design axis for ML practitioners:
 </div>
 </div>
 
-This tension is the root of why **BF16 (Brain Float 16)** was invented:
+This tension is the root of why **BF16 (Brain Float 16)** was invented. Drawn to scale, the three formats split their bits like this:
+
+<div class="bitfield"><div class="bf-seg sign" style="flex:1">S<small>1</small></div><div class="bf-seg exponent" style="flex:8">exponent<small>8 bits</small></div><div class="bf-seg mantissa" style="flex:23">mantissa<small>23 bits</small></div></div>
+<div class="bitfield-label">FP32 · bias 127 · ~7 decimal digits</div>
+<div class="bitfield"><div class="bf-seg sign" style="flex:1">S<small>1</small></div><div class="bf-seg exponent" style="flex:5">exponent<small>5 bits</small></div><div class="bf-seg mantissa" style="flex:10">mantissa<small>10 bits</small></div></div>
+<div class="bitfield-label">FP16 · bias 15 · max 65,504</div>
+<div class="bitfield"><div class="bf-seg sign" style="flex:1">S<small>1</small></div><div class="bf-seg exponent" style="flex:8">exponent<small>8 bits</small></div><div class="bf-seg mantissa" style="flex:7">mantissa<small>7 bits</small></div></div>
+<div class="bitfield-label">BF16 · bias 127 · FP32's range with 8 bits of significand</div>
+
 
 | Format | Sign | Exponent | Mantissa | Total | Range | Precision |
 |--------|:----:|:--------:|:--------:|:-----:|-------|-----------|
@@ -461,28 +473,37 @@ b64 = np.float64(1000000.0)
 result_f64 = a64 - b64
 print(f"FP64: {a64} - {b64} = {result_f64:.10f}")  # 0.0999999...
 
-# The Kahan summation algorithm compensates for floating-point accumulation error
-def kahan_sum(values):
-    total = 0.0
-    compensation = 0.0
+# Accumulation error: add 0.1 one million times, four ways
+data = np.full(1_000_000, 0.1, dtype=np.float32)
+
+def kahan_sum_f32(values):
+    """Compensated summation with every operation in FP32."""
+    total, comp = np.float32(0.0), np.float32(0.0)
     for v in values:
-        y = v - compensation
+        y = v - comp
         t = total + y
-        compensation = (t - total) - y
+        comp = (t - total) - y      # the low-order bits that were just lost
         total = t
     return total
 
-# Naive vs Kahan sum of 1,000,000 small values
-data_f32 = np.ones(1_000_000, dtype=np.float32) * 0.1
-naive_sum = float(np.sum(data_f32))         # Uses float32 accumulation
-kahan     = kahan_sum(data_f32.tolist())
-expected  = 100_000.0
-print(f"Expected: {expected}")
-print(f"Naive:    {naive_sum:.2f}")
-print(f"Kahan:    {kahan:.2f}")
+print(f"{data.sum(dtype=np.float64):.4f}")                 # 100000.0015  exact sum of the FP32 inputs
+print(f"{np.cumsum(data, dtype=np.float32)[-1]:.4f}")      # 100958.3438  one running FP32 accumulator
+print(f"{data.sum(dtype=np.float32):.4f}")                 # 100000.0078  NumPy's pairwise summation
+print(f"{kahan_sum_f32(data):.4f}")                        # 100000.0000  Kahan, still all FP32
 ```
 
+(Outputs from NumPy 2.5 on x86-64.) A single running FP32 accumulator is off by almost 1 %: once the total passes 65,536 the spacing between FP32 values is 1/128, so each added 0.1 is rounded by a relatively large amount, always in the same direction. Summing in a tree (pairwise) or carrying the lost bits (Kahan) fixes it without a wider type. GPU reductions and GEMM kernels use the tree idea for the same reason.
+
 This is why PyTorch's `torch.sum` and `torch.nn.LayerNorm` use FP32 accumulation internally even when the input tensor is FP16 or BF16 — the accumulator precision matters.
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>A training run accumulates gradients over 64 micro-batches in BF16 before the optimizer step. Using the accumulation example above, what would you expect to happen to small gradients late in the accumulation, and which of the three fixes (wider accumulator, pairwise order, compensated sum) would a framework most likely choose?</p>
+</div>
+
+Try any value in any format below. Click bits to flip them and watch the decoded value change; `0.1` in BF16 versus FP16 shows the precision trade in one glance.
+
+<div class="lab" data-lab="bits"><noscript><div class="lab-noscript">The bit explorer needs JavaScript.</div></noscript></div>
 
 ---
 
@@ -518,7 +539,7 @@ for v in [0.0, 1.0, -1.0, 0.1, 1e38, float('inf')]:
 <div class="diagram-grid cols-3">
   <div class="diagram-card accent">
     <div class="card-title">Bit Width = Memory Budget</div>
-    <div class="card-desc">FP32 weights cost 4× more bytes than INT8. Halving precision halves the memory wall and doubles effective bandwidth — the primary driver of quantization speedups (Ch 25).</div>
+    <div class="card-desc">FP32 weights cost 4× more bytes than INT8. Halving the bits halves the bytes moved, so a memory-bound kernel can run up to 2× faster: the primary driver of quantization speedups (Ch 25).</div>
   </div>
   <div class="diagram-card green">
     <div class="card-title">Range vs Precision Trade-off</div>
@@ -530,11 +551,11 @@ for v in [0.0, 1.0, -1.0, 0.1, 1e38, float('inf')]:
   </div>
   <div class="diagram-card purple">
     <div class="card-title">Two's Complement Symmetry</div>
-    <div class="card-desc">INT8 has 256 levels: -128 to 127. The asymmetry (|min| > max) means naive symmetric quantization clips -128. Some quantization schemes use [-127, 127] deliberately for exact zero representation.</div>
+    <div class="card-desc">INT8 has 256 levels, −128 to 127. Symmetric quantizers usually restrict themselves to [−127, 127] so that ±max map to the same magnitude and negating a value can never overflow; zero is exact either way.</div>
   </div>
   <div class="diagram-card orange">
-    <div class="card-title">Subnormals = GPU Slowdown</div>
-    <div class="card-desc">FP16 gradients near zero may become subnormal, triggering 10-100× slower denormal paths on GPU. Loss scaling keeps gradients in the normal range. FTZ mode flushes subnormals to zero — but then tiny gradients vanish.</div>
+    <div class="card-title">Subnormals = Lost Range</div>
+    <div class="card-desc">FP16 gradients below 6.1 × 10⁻⁵ go subnormal and, under flush-to-zero, vanish. GPUs pay no speed penalty for subnormals, CPUs often do. Loss scaling (or BF16's wider exponent) keeps gradients in the normal range.</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">Fixed-Point = Quantization</div>
@@ -552,11 +573,50 @@ for v in [0.0, 1.0, -1.0, 0.1, 1e38, float('inf')]:
 - **Fixed-point** (Q-format) is an integer with an implicit binary point; quantization is fixed-point arithmetic with a learned scale factor.
 - **IEEE-754 floating point** encodes $(-1)^S \times 1.M \times 2^{E-\text{bias}}$; the bias allows unsigned comparison; the hidden bit gives one free bit of mantissa.
 - **FP32** has 8 exponent bits and 23 mantissa bits; **BF16** trades mantissa for FP32-equivalent range; **FP16** trades range for more mantissa — range matters more for training.
-- **Subnormals** provide gradual underflow but incur a large performance penalty; **special values** (±∞, NaN) propagate through arithmetic.
+- **Subnormals** provide gradual underflow (slow on many CPUs, full speed on NVIDIA GPUs); **special values** (±∞, NaN) propagate through arithmetic.
+- **How you accumulate** matters as much as the format: a single running FP32 sum of 10⁶ values can be off by ~1 %, while pairwise or Kahan summation in the same format is exact to ~10⁻⁷.
 - The **precision vs dynamic range** trade-off governs every ML dtype decision: Chapter 23 extends these foundations to FP8, FP4, INT4, and microscaling formats.
+
+## Check Yourself
+
+<details class="check">
+<summary>What is the INT8 bit pattern of −5, and how do you get it?</summary>
+<p>Take +5 = 0000 0101, invert every bit to 1111 1010, add 1: <code>1111 1011</code> (0xFB). Adding it to +5 in an ordinary adder gives 1 0000 0000; the carry out is discarded and the result is 0.</p>
+</details>
+
+<details class="check">
+<summary>Why does BF16 rarely need loss scaling while FP16 does?</summary>
+<p>BF16 keeps FP32's 8-bit exponent, so it covers the same ~10⁻³⁸ to 10³⁸ range and small gradients stay representable. FP16 has 5 exponent bits: normal values stop at 6.1 × 10⁻⁵ and the maximum is 65,504, so gradients underflow (or activations overflow) unless the loss is scaled up before the backward pass.</p>
+</details>
+
+<details class="check">
+<summary>In FP32, why does 1e8 + 1 equal 1e8 while 1e7 + 1 does not?</summary>
+<p>FP32 has a 24-bit significand, so between 2²⁶ and 2²⁷ (which contains 1e8) adjacent values are 2³ = 8 apart; adding 1 is less than half a spacing and rounds back to 1e8. Between 2²³ and 2²⁴ (which contains 1e7) the spacing is exactly 1, so 1e7 + 1 is representable.</p>
+</details>
+
+<details class="check">
+<summary>A kernel sums a million BF16 values with one BF16 accumulator. What goes wrong and what is the usual fix?</summary>
+<p>Once the running total is large, each new small value is smaller than half the spacing of BF16 (only 8 significant bits) and is rounded away or heavily rounded, so the total stalls. Kernels accumulate in FP32 and reduce in a tree (pairwise); both are standard in cuBLAS and PyTorch reductions.</p>
+</details>
+
+<details class="check">
+<summary>Why is round-to-nearest-even preferred over round-half-up for long computations?</summary>
+<p>Round-half-up always resolves ties in the same direction, adding a small positive bias that accumulates over many operations. Ties-to-even sends half of the ties up and half down, so the expected rounding error is zero.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| IEEE Standard for Floating-Point Arithmetic (IEEE 754-2019) | IEEE, 2019 | [doi.org/10.1109/IEEESTD.2019.8766229](https://doi.org/10.1109/IEEESTD.2019.8766229) | Formats, special values, the five rounding modes |
+| What Every Computer Scientist Should Know About Floating-Point Arithmetic | D. Goldberg, ACM Computing Surveys 1991 | [doi.org/10.1145/103162.103163](https://doi.org/10.1145/103162.103163) | ULPs, cancellation, rounding error analysis |
+| Further Remarks on Reducing Truncation Errors | W. Kahan, CACM 1965 | [doi.org/10.1145/363707.363723](https://doi.org/10.1145/363707.363723) | Compensated (Kahan) summation |
+| Accuracy and Stability of Numerical Algorithms, 2nd ed. | N. Higham, SIAM 2002 | [doi.org/10.1137/1.9780898718027](https://doi.org/10.1137/1.9780898718027) | Error bounds for recursive vs pairwise summation |
+| A Study of BFLOAT16 for Deep Learning Training | D. Kalamkar et al., 2019 | [arxiv.org/abs/1905.12322](https://arxiv.org/abs/1905.12322) | Why an FP32-range 16-bit format trains without loss scaling |
+| CUDA C++ Programming Guide: floating-point standard and intrinsics | NVIDIA | [docs.nvidia.com/cuda/cuda-c-programming-guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/) | Denormal handling and flush-to-zero on GPUs |
 
 ---
 
-*Next: [Chapter 4 — Anatomy of a Processor](./04_anatomy_of_a_processor.md), where we wire these number representations and adders together into a full CPU — fetch, decode, execute, and the pipeline.*
+**Next:** [Chapter 4 — Anatomy of a Processor](./04_anatomy_of_a_processor.md) — We wire these number representations and adders together into a full CPU — fetch, decode, execute, and the pipeline.
 
 [← Back to Table of Contents](./README.md)

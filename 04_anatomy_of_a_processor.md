@@ -85,7 +85,7 @@ The **register file** is a small, ultra-fast array of registers on-chip. A typic
 | ARM AArch64 | 31 + SP + ZR | 64 bit | 256 B |
 | RISC-V (RV64I) | 32 (x0–x31) | 64 bit | 256 B |
 
-Register access latency is **< 1 clock cycle** (effectively zero from the pipeline's perspective — the register file is read in the same stage as decode). Compare this to L1 cache (~4 cycles), L2 (~12 cycles), DRAM (~100–300 cycles). Registers are the fastest memory in the system, by far.
+Register access latency is **< 1 clock cycle** (effectively zero from the pipeline's perspective — the register file is read in the same stage as decode). Compare this to L1 cache (~4 cycles), L2 (~12 cycles), DRAM (~200–400 cycles at 4–5 GHz). Registers are the fastest memory in the system, by far.
 
 ### ALU
 
@@ -109,8 +109,8 @@ This is the operational heartbeat of every processor ever built. Let's walk thro
 
 ```text
 PC = 0x0000_1000    ← contains address of next instruction
-Instruction Memory[0x1000] = 0x00208133  ← raw 32-bit RISC-V encoding
-IR ← 0x00208133     ← loaded into Instruction Register
+Instruction Memory[0x1000] = 0x002081B3  ← raw 32-bit RISC-V encoding
+IR ← 0x002081B3     ← loaded into Instruction Register
 PC ← PC + 4         ← advance to next instruction (0x1004)
 ```
 
@@ -121,7 +121,7 @@ The PC value is presented to the instruction cache; the 4-byte instruction is re
 The control unit inspects the bit fields of the IR:
 
 ```text
-Instruction: 0x00208133  =  0000 0000 0010  00001  000  00011  0110011
+Instruction: 0x002081B3  =  0000 0000 0010  00001  000  00011  0110011
                              │ funct7      │ rs2  │rs1 │funct3│  rd  │ opcode
                              └─ 0         └─ 2   └─1  └─ADD  └─ 3   └─R-type
 ```
@@ -263,7 +263,7 @@ For a matmul computation, a scalar CPU running at 3 GHz with IPC = 2 performs:
 
 $$3 \times 10^9 \times 2 = 6 \times 10^9 \text{ ops/s} = 6 \text{ GFLOPS}$$
 
-An H100 GPU peaks at ~67,000 GFLOPS (INT8). The ~10,000× gap is not from a faster clock (GPUs typically run at 1–2 GHz) — it is from **parallelism**: tens of thousands of ALUs operating simultaneously. This gap is precisely what motivates Chapter 8 (parallel processing) and Chapter 15 (GPUs).
+An H100 GPU peaks at ~67,000 GFLOPS in plain FP32 on its CUDA cores and ~989,000 GFLOPS in BF16 on its Tensor Cores, four to five orders of magnitude more. The gap is not from a faster clock (GPUs typically run at 1–2 GHz); it is from **parallelism**: tens of thousands of arithmetic units operating simultaneously. This gap is precisely what motivates Chapter 8 (parallel processing) and the accelerator chapters of Part III.
 
 ---
 
@@ -389,6 +389,11 @@ For a loop over 1 million iterations with 99.9% prediction accuracy: ~1,000 misp
 
 ---
 
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Doubling the pipeline depth roughly halves the work per stage, so why did the industry retreat from the 31-stage Pentium 4 to the ~14–20-stage designs of today? List what grows with depth (latch overhead, misprediction penalty, power) and decide where you would stop.</p>
+</div>
+
 ## Toward Superscalar: One Instruction Is Never Enough
 
 A 5-stage pipeline reaches at most 1 IPC. To do better, a **superscalar** processor fetches, decodes, and issues *multiple* instructions per cycle. A 4-wide superscalar has four sets of functional units and can retire up to 4 instructions per cycle. Combined with **out-of-order execution** (dynamically reordering instructions to execute as soon as their inputs are ready), modern server CPUs achieve 3–6 effective IPC.
@@ -461,7 +466,7 @@ for k, v in result.items():
 <div class="diagram-grid cols-3">
   <div class="diagram-card accent">
     <div class="card-title">Scalar CPU = Poor Matmul</div>
-    <div class="card-desc">One ALU, one MAC per cycle: a CPU core at 3 GHz, IPC=2 does ~6 GFLOPS. A 7B-parameter model inference requires ~14 TFLOPS at FP16. This 2,300× gap is why you never run large LLM inference on CPU cores — you need a GPU or accelerator.</div>
+    <div class="card-desc">    <div class="card-desc">A scalar core at 3 GHz with IPC = 2 does ~6 GFLOPS. A 7B-parameter model needs ~14 GFLOP per generated token (2 FLOPs per parameter), so serving 1,000 tokens/s needs ~14 TFLOP/s: 2,300× one scalar core. Real CPUs close part of the gap with SIMD and many cores (Ch 14); accelerators close the rest.</div>
   </div>
   <div class="diagram-card green">
     <div class="card-title">Throughput ≠ Latency</div>
@@ -469,7 +474,7 @@ for k, v in result.items():
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Branch-Free Code is Fast Code</div>
-    <div class="card-desc">Attention masks, ReLU, top-k sampling — any data-dependent conditional adds branch misprediction risk. Hardware-friendly activations (GELU, SiLU) are sometimes preferred partly because they are computed arithmetically (no branching).</div>
+    <div class="card-desc">    <div class="card-desc">ReLU, clamping and attention masks compile to branch-free select or max instructions, so they cost nothing extra. Data-dependent control flow (top-k sampling, early exit, MoE routing, sparse lookups) is where mispredictions on CPUs and divergence on GPUs actually bite.</div>
   </div>
   <div class="diagram-card purple">
     <div class="card-title">Register Pressure = Kernel Efficiency</div>
@@ -481,7 +486,7 @@ for k, v in result.items():
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">fetch–decode–execute in GPU Context</div>
-    <div class="card-desc">A GPU SM still runs fetch–decode–execute, but on 32-thread warps simultaneously (SIMT). The "instruction" is applied to 32 FP16 or INT8 values at once. Tensor cores accelerate further by making the "instruction" a 16×16 matrix multiply.</div>
+    <div class="card-desc">A GPU SM still runs fetch–decode–execute, but on 32-thread warps simultaneously (SIMT). The "instruction" is applied to 32 FP16 or INT8 values at once. Tensor cores go further: one warp-level <code>mma</code> instruction multiplies a whole tile, e.g. 16×8×16, so a single fetch–decode drives thousands of MACs.</div>
   </div>
 </div>
 </div>
@@ -496,10 +501,47 @@ for k, v in result.items():
 - Performance = Instructions × CPI / Clock. Scalar CPUs peak at ~1 IPC; real-world CPI > 1 due to hazards.
 - **Pipelining** overlaps instruction execution (like an assembly line), approaching 1 instruction/cycle throughput at the cost of startup latency and hazard handling.
 - **Data hazards** (RAW) are resolved by **forwarding**; **control hazards** (branches) are resolved by **prediction** — mispredictions cost 15–25 cycles.
-- A scalar CPU at ~6 GFLOPS is ~2,000–10,000× slower than a GPU for matmul — the gap that motivates all parallel hardware in the rest of this guide.
+- A scalar CPU core at ~6 GFLOPS is 10⁴–10⁵× slower than a modern GPU's tensor cores for matmul: the gap that motivates all parallel hardware in the rest of this guide.
+
+## Check Yourself
+
+<details class="check">
+<summary>Decode <code>0x002081B3</code> as a RISC-V instruction.</summary>
+<p>In binary: funct7 = 0000000, rs2 = 00010, rs1 = 00001, funct3 = 000, rd = 00011, opcode = 0110011. Opcode 0110011 is R-type integer arithmetic, funct3/funct7 of zero select ADD, so the instruction is <code>add x3, x1, x2</code>.</p>
+</details>
+
+<details class="check">
+<summary>The pipeline example ran 20 instructions 4.17× faster, not 5×. Where did the rest go, and what happens as N grows?</summary>
+<p>Pipelined time is (stages + N − 1) cycles: 4 of the 24 cycles are spent filling the pipeline. Speedup is 5N/(N+4), which approaches 5 only as N → ∞; in real cores, hazards and stalls keep it lower still.</p>
+</details>
+
+<details class="check">
+<summary>With 8 stall cycles and 2 mispredicted branches (20-cycle penalty) per 100 instructions, what is the CPI, and which effect dominates?</summary>
+<p>CPI ≈ 1 + 0.08 + 0.02 × 20 = 1.48. Mispredictions cost 0.40 CPI, five times the data-hazard stalls: one branch in fifty is already expensive.</p>
+</details>
+
+<details class="check">
+<summary>Why can a GPU tolerate ~500-cycle memory latency when a single CPU thread cannot?</summary>
+<p>A GPU keeps dozens of warps resident per SM and switches to a ready warp on every cycle a warp stalls, so latency is hidden by other threads' work. A CPU thread relies on caches, prefetchers and out-of-order execution to find independent work within one instruction stream, which runs out long before 500 cycles.</p>
+</details>
+
+<details class="check">
+<summary>What is the difference between throughput and latency in a pipelined unit, in ML terms?</summary>
+<p>Latency is how long one operation takes from start to finish; throughput is how many complete per unit time once the pipeline is full. Batch-1 decoding is latency-bound; large-batch training is throughput-bound, which is why the same chip looks fast or slow depending on how you feed it.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Computer Organization and Design, RISC-V Edition, 2nd ed. | D. Patterson, J. Hennessy, 2020 | [elsevier.com/books/computer-organization-and-…](https://www.elsevier.com/books/computer-organization-and-design-risc-v-edition/patterson/978-0-12-820331-6) | Datapath, control and the 5-stage pipeline (Ch. 4) |
+| First Draft of a Report on the EDVAC | J. von Neumann, 1945 (reprinted IEEE Annals 1993) | [doi.org/10.1109/85.238389](https://doi.org/10.1109/85.238389) | The stored-program architecture |
+| The RISC-V Instruction Set Manual, Volume I: Unprivileged ISA | RISC-V International | [riscv.org/specifications/ratified](https://riscv.org/specifications/ratified/) | R-type encoding used in the decode example |
+| The microarchitecture of Intel, AMD and VIA CPUs | A. Fog, updated annually | [agner.org/optimize/microarchitecture.pdf](https://www.agner.org/optimize/microarchitecture.pdf) | Pipeline depths and branch-misprediction penalties on real cores |
+| Computer Architecture: A Quantitative Approach, 6th ed. | J. Hennessy, D. Patterson, 2017 | [elsevier.com/books/computer-architecture/henn…](https://www.elsevier.com/books/computer-architecture/hennessy/978-0-12-811905-1) | The performance equation, CPI and hazards (App. C) |
 
 ---
 
-*Next: [Chapter 5 — Instruction Sets](./05_instruction_sets.md), where we look at what the ISA layer exposes to software — RISC vs CISC, x86/ARM/RISC-V, and the SIMD vector extensions that give CPUs their highest ML throughput.*
+**Next:** [Chapter 5 — Instruction Sets](./05_instruction_sets.md) — We look at what the ISA layer exposes to software — RISC vs CISC, x86/ARM/RISC-V, and the SIMD vector extensions that give CPUs their highest ML throughput.
 
 [← Back to Table of Contents](./README.md)

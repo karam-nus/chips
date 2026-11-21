@@ -106,7 +106,7 @@ A VLIW instruction encodes multiple independent operations in parallel — one w
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-The TI C66x (used in baseband modems, radar, etc.) can execute **8 MACs per cycle** by having two multiplier units (`.M1`, `.M2`) each doing 4× 16-bit MACs simultaneously (via SIMD), issuing 8 SIMD-packed MACs per 256-bit VLIW word. At 1.2 GHz: **9.6 GMAC/s** from a single C66x core.
+The TI C66x (used in baseband modems, radar, etc.) issues up to eight instructions per cycle across its eight functional units; its two multiplier units (`.M1`, `.M2`) are SIMD, giving up to **32 16-bit MACs per cycle**, four times its C64x+ predecessor. At 1.2 GHz: **9.6 GMAC/s** from a single C66x core.
 
 **The trade-off:** VLIW requires the **compiler** to schedule operations into the correct slots — there is no out-of-order hardware to re-schedule at runtime. If the compiler can't find enough independent instructions to fill all slots, it inserts NOPs (no-operation). DSP compilers (and skilled DSP assembly programmers) spend considerable effort on **loop unrolling**, **software pipelining**, and **modulo scheduling** to sustain full utilization.
 
@@ -290,9 +290,9 @@ print(f"Input  std: {x_noisy.std():.1f}   Output std: {y_filtered.std():.1f}")
 # Smoothing reduces std — high-frequency noise attenuated ✓
 ```
 
-**Parallelism on a DSP:** With VLIW + SIMD (e.g., 4× 16-bit MAC per instruction), a DSP can compute **4 MACs per cycle** on vectorized input data. The TI C66x's two `.M` units each do `4×16b×16b` SIMD, giving **8 MACs/cycle** per core. For an 8-tap filter: 1 cycle if 8 MACs fit in one VLIW packet (with full SIMD utilization). For a 256-tap lowpass filter: 32 cycles per output sample at 8 MACs/cycle.
+**Parallelism on a DSP:** With VLIW + SIMD, each `.M` unit of a C66x performs 16 16-bit MACs per cycle, so the core sustains up to **32 MACs per cycle** on vectorized input data when the compiler fills every slot.
 
-At 1.2 GHz and 8 MACs/cycle: **9.6 GMAC/s = 19.2 GOPS INT16** — comparable to a small NPU, achieved on a 0.5–1 W DSP die.
+At 1.2 GHz and 32 MACs/cycle: **~38 GMAC/s ≈ 77 GOPS INT16** per core, on a power budget of about a watt per core: tiny next to an NPU, but deterministic, programmable in C, and good at the FFTs and filters that NPUs handle badly.
 
 ---
 
@@ -327,10 +327,10 @@ TI's **C6000 family** (C62x, C64x+, C66x, C674x) is the standard bearer for trad
 |:----:|:----:|:----------:|:----------:|-------|
 | C62x | 1997 | 2 (16-bit) | 32 | First C6000 |
 | C64x+ | 2002 | 8 (16-bit) | 32 | 8 functional units |
-| C66x | 2011 | 8 (16-bit) or 4 (32-bit) | 32/64 | Floating point added |
-| C7x | 2018 | 512 (8-bit) | 512-bit vector | ANN/AI workloads |
+| C66x | 2011 | 32 (16-bit) or 8 (FP32) | 32/64 | Floating point added |
+| C7x (+ MMA) | 2018 | 64 INT8 lanes (vector) + 4,096 INT8 MACs (MMA) | 512-bit vector | DSP + matrix accelerator for ADAS |
 
-The **C7x** is a dramatic evolution: its 512-bit vector unit performs **512 INT8 MACs per cycle** at 1 GHz = **512 GOPS INT8** — firmly in NPU territory. TI's MMA (Matrix Multiply Accelerator) extension adds an 8×8 INT8 systolic-style array to the C7x, making it a DSP-NPU hybrid. Modern TI AI-capable SoCs (TDA4VM for automotive ADAS) package C7x cores with dedicated deep-learning accelerators and MMA units.
+The **C7x** (2018) is a dramatic evolution: a 512-bit vector DSP (64 INT8 lanes) paired, in TI's Jacinto and AM6x automotive and industrial SoCs, with a **Matrix Multiply Accelerator (MMA)** of 4,096 INT8 MACs per cycle, which is how the TDA4VM reaches **8 TOPS**. The DSP handles signal processing and control; the MMA handles convolutions and matmuls.
 
 ### CEVA DSPs
 
@@ -353,11 +353,13 @@ The **Tensilica HiFi** (now Cadence) DSP family is the dominant audio DSP archit
 - Apple AirPods (ANC, transparency mode compute)
 - Nearly all TWS (true wireless stereo) earbuds
 
-| Core | MIPS | MACs/cycle | Power | Use case |
-|:----:|:----:|:----------:|:-----:|---------|
-| HiFi 1 | 400 | 2 (32-bit) | ~5 mW | Legacy audio |
-| HiFi 4 | 600 | 8 (32-bit) | ~10 mW | High-quality audio, NN |
-| HiFi 5 | 1000 | 8+8 (32-bit) | ~15 mW | Voice/NLP inference |
+| Core | Focus | Notes |
+|:----:|:------:|-------|
+| HiFi 1 | Ultra-low-energy audio | Bluetooth audio, hearables |
+| HiFi 3 / HiFi 4 | High-resolution audio | HiFi 4 adds NN instruction extensions for small models |
+| HiFi 5 / HiFi 5s | Voice and NN inference | Roughly twice HiFi 4's NN throughput; far-field voice and on-device speech |
+
+Cadence sells these as configurable IP, so clock rates, MAC counts and power depend on the licensee's configuration and process; earbud-class designs run in the low tens of milliwatts.
 
 The **HiFi 4** added INT8 NN operations, making it capable of running small keyword-spotting models (CRNN, RNN-T stub) at the 10–15 mW power level required for always-on earbuds. The trade-off: HiFi is word-oriented (processes 32-bit audio samples), not image-oriented — it is slower at INT8 image convolution than an NPU MAC array but vastly lower power.
 
@@ -365,17 +367,16 @@ The **HiFi 4** added INT8 NN operations, making it capable of running small keyw
 
 ## DSP vs CPU vs NPU: A Comparison Table
 
-| Trait | CPU (Cortex-A78) | DSP (TI C66x) | NPU (Apple ANE) |
+| Trait | CPU (Cortex-A78) | DSP (TI C66x) | NPU (Apple ANE, M4) |
 |-------|:----------------:|:-------------:|:---------------:|
-| Architecture | OOO superscalar | VLIW in-order | Systolic dataflow |
-| Primary dtype | FP32/FP64 | INT16/INT32 (fixed-point) | INT8/INT4 |
-| MAC throughput | ~0.1 GMAC/s/core | ~9.6 GMAC/s/core | ~19 TOPS (38 TOPS total) |
-| Power | 1–3 W/core | 0.5–1 W/core | ~2 W total |
-| TOPS/W | ~0.1 | ~10 | ~19 |
+| Architecture | OoO superscalar | VLIW in-order | Fixed-function MAC array |
+| Primary dtype | FP32/FP64, INT8 via NEON | INT16/INT32 fixed-point, FP32 | INT8/FP16 |
+| Peak MAC throughput | ~25 GMAC/s FP32, ~100 GMAC/s INT8 per core (NEON at 3 GHz) | ~38 GMAC/s INT16 per core | 38 TOPS (19 TMAC/s) |
+| Power | 1–3 W per core | ~1 W per core | a few W (not published) |
 | Memory | Cache (unified) | Scratchpad SRAM (Harvard) | Scratchpad SRAM |
 | Latency determinism | Low (cache miss risk) | High (scratchpad) | High (compiled schedule) |
 | Best workload | General / irregular | Streaming signal processing | Dense NN inference (matmul) |
-| Programmability | C/C++, any OS | C/DSP intrinsics, RTOS | Via Core ML / NNAPI only |
+| Programmability | C/C++, any OS | C/DSP intrinsics, RTOS | Core ML only |
 | Typical location | SoC application CPU | SoC modem/audio/sensor | SoC AI cluster |
 
 ---
@@ -395,11 +396,11 @@ Pipeline:
              → If p > threshold: wake application CPU
 ```
 
-Power breakdown on a Cortex-A55 + HiFi 4 combo:
+Illustrative power breakdown on a Cortex-A55 + HiFi 4 combination:
 - CPU sleeping: ~1 mW
 - HiFi 4 audio front-end: ~8 mW
 - HiFi 4 NN inference (5 fps): ~2 mW
-- Total: **~11 mW** continuous — achieves >24 h on a 500 mAh battery.
+- Total: **~11 mW** continuous, about a week of always-on listening from a 500 mAh, 3.7 V battery if nothing else draws power.
 
 Running the same pipeline on the Cortex-A55 would cost ~500 mW — a 45× power penalty.
 
@@ -418,6 +419,11 @@ The 3-D FFT maps naturally to the DSP's efficient FFT support (bit-reversed addr
 Active noise cancellation (ANC) in earbuds runs a **feedback/feedforward FIR+IIR filter system** with coefficients updated thousands of times per second via adaptive filtering algorithms (LMS, RLS). This requires sustained, single-cycle MAC execution — the HiFi DSP is the standard choice for sub-20 mW ANC.
 
 ---
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Radar, audio and baseband pipelines still run on DSPs because they are dominated by FFTs, filters and bit-level coding, not matmuls. As "learned" replacements (neural CFAR, neural codecs, neural receivers) arrive, which parts would you move to the NPU, and which would you keep on a deterministic DSP for certification and latency reasons?</p>
+</div>
 
 ## The DSP ↔ NPU Convergence
 
@@ -463,7 +469,7 @@ The AI industry re-invented the same concepts under new names:
 |:--------:|:---------------:|:----------:|
 | Q-format fixed-point | Quantization | Yes |
 | Scale factor per filter coefficient | Per-channel scale | Yes |
-| Accumulator width extension (40-bit) | FP32 accumulator for INT8 MACs | Yes |
+| Accumulator width extension (40-bit) | INT32 accumulator for INT8 MACs (FP32 for FP8) | Yes |
 | Saturating arithmetic | Clamping to quant range | Yes |
 | Coefficient quantization (Q15 weights) | Weight quantization (INT8) | Yes |
 | Dynamic range scaling (gain normalization) | Zero-point shift | Yes |
@@ -528,7 +534,7 @@ print(f"Max relative error: {rel_error:.4%}")
 
 **3. Fixed-point quantization is not lossy mystery — it is 50-year-old engineering.** The error model for INT8 quantization is well understood: quantization noise has power $\sigma^2_q \approx \Delta^2 / 12$ where $\Delta = 2 \cdot x_{\max} / 255$ is the step size. This is exactly the quantization noise model from DSP textbooks. Understanding it helps you reason about *when* quantization error is acceptable (high-activation-variance layers, post-softmax) vs harmful (first/last layers, attention temperature).
 
-**4. The accumulator width matters.** When you quantize a model to INT8 and run it on a DSP or NPU, the accumulator is INT32 (32 bits). This means you can accumulate up to $2^{32} / (127^2) \approx 266,000$ INT8 products before the accumulator overflows — far more than any practical layer depth. INT32 accumulators provide the safety margin that makes INT8 quantized inference reliable. Awareness of this lets you reason about whether intermediate rescaling (requantization) is necessary inside a layer.
+**4. The accumulator width matters.** When you quantize a model to INT8 and run it on a DSP or NPU, the accumulator is INT32 (32 bits). This means you can accumulate up to $2^{31} / 127^2 pprox 133{,}000$ worst-case INT8 products before the accumulator overflows — far more than any practical layer depth. INT32 accumulators provide the safety margin that makes INT8 quantized inference reliable. Awareness of this lets you reason about whether intermediate rescaling (requantization) is necessary inside a layer.
 
 **5. DSPs and NPUs will share your SoC.** On Snapdragon, Dimensity, and Renesas RZ/V devices, the DSP and NPU are on the same die and share the same LPDDR bus. A heavily-loaded DSP (audio processing) stealing bandwidth from LPDDR can reduce NPU effective throughput by 10–20%. Profile total SoC memory bandwidth, not just NPU TOPS, when benchmarking end-to-end inference pipelines.
 
@@ -544,8 +550,40 @@ print(f"Max relative error: {rel_error:.4%}")
 - The **DSP ↔ NPU boundary is dissolving**: modern SoCs integrate DSP + dedicated NPU MAC array as co-processors, with the compiler routing ops based on arithmetic intensity and operator type.
 - For ML practitioners: DSPs power always-on inference at µW–mW scale; fixed-point heritage explains why INT8 quantization works; and understanding the DSP's accumulator model clarifies quantization error guarantees.
 
+## Check Yourself
+
+<details class="check">
+<summary>Why does a DSP use a 40-bit accumulator for 16-bit × 16-bit MACs?</summary>
+<p>Each product is 32 bits; summing many of them needs headroom. Eight guard bits allow 2⁸ = 256 worst-case products before overflow, enough for typical filter lengths, and saturation catches the rest.</p>
+</details>
+
+<details class="check">
+<summary>What does hardware circular addressing save in a 64-tap FIR filter?</summary>
+<p>The pointer wrap (a compare-and-reset or modulo) on every one of the 64 loads per output sample. The address generator wraps automatically, so the MAC unit gets a new operand every cycle with zero bookkeeping instructions.</p>
+</details>
+
+<details class="check">
+<summary>Why did VLIW succeed in DSPs but fail in general-purpose CPUs (Itanium)?</summary>
+<p>DSP code has regular loops with known trip counts and memory access patterns, so a compiler can fill the instruction slots statically. General-purpose code has unpredictable branches and cache misses, which leave statically scheduled slots empty; out-of-order hardware adapts at run time.</p>
+</details>
+
+<details class="check">
+<summary>How many worst-case INT8 products fit in a signed INT32 accumulator?</summary>
+<p>2³¹ / 127² ≈ 133,000, far more than the reduction lengths in typical layers (a few thousand), which is why INT32 accumulation is safe for INT8 inference.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| TMS320C66x DSP CPU and Instruction Set Reference Guide | Texas Instruments | [ti.com/lit/ug/sprugh7/sprugh7.pdf](https://www.ti.com/lit/ug/sprugh7/sprugh7.pdf) | C66x functional units and MAC throughput |
+| Qualcomm Hexagon DSP: An architecture optimized for mobile multimedia and communications | L. Codrescu et al., IEEE Micro 2014 | [doi.org/10.1109/MM.2014.12](https://doi.org/10.1109/MM.2014.12) | Hexagon VLIW and multithreading design |
+| Understanding Digital Signal Processing, 3rd ed. | R. Lyons, 2010 | [pearson.com/en-us/subject-catalog/p/understan…](https://www.pearson.com/en-us/subject-catalog/p/understanding-digital-signal-processing/P200000003383) | FIR, FFT and fixed-point arithmetic |
+| Cadence Tensilica HiFi DSPs | Cadence | [cadence.com/en_US/home/tools/silicon-solution…](https://www.cadence.com/en_US/home/tools/silicon-solutions/compute-ip/hifi-dsps.html) | HiFi family positioning and NN extensions |
+| TDA4VM Jacinto processor data sheet | Texas Instruments | [ti.com/product/TDA4VM](https://www.ti.com/product/TDA4VM) | C7x DSP + MMA, 8 TOPS |
+
 ---
 
-*Next: [Chapter 19 — ISPs](./19_isps.md), where we look at the Image Signal Processor — the dedicated pipeline that transforms raw sensor photons into the clean RGB frames your neural network actually sees.*
+**Next:** [Chapter 19 — ISPs](./19_isps.md) — We look at the Image Signal Processor — the dedicated pipeline that transforms raw sensor photons into the clean RGB frames your neural network actually sees.
 
 [← Back to Table of Contents](./README.md)

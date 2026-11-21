@@ -16,21 +16,64 @@ The answer lies in one of the most important phenomena in computer architecture:
 
 ## The Memory Wall
 
-In 1994, Wulf and McKee published a paper titled *"Hitting the Memory Wall: Implications of the Obvious."* The observation was simple but brutal: **DRAM bandwidth and latency were improving far more slowly than processor FLOP rates.** If you plotted the two on the same graph, the gap grew exponentially.
+In 1995, Wulf and McKee published a short paper titled *"Hitting the Memory Wall: Implications of the Obvious."* The observation was simple but brutal: **DRAM latency was improving far more slowly than processor speed**, so programs would eventually spend most of their time waiting for memory. If you plotted the two on the same graph, the gap grew exponentially.
 
-Here are the rough numbers that illustrate the trend:
+For accelerators the wall shows up as a ridge point (peak FLOP/s ÷ bandwidth, derived below) that keeps climbing generation after generation:
 
-| Year | Approx peak CPU FLOP/s | Approx DRAM bandwidth | Ratio (FLOP/byte) |
-|:----:|:----------------------:|:---------------------:|:-----------------:|
-| 1990 | ~0.05 GFLOP/s | ~0.13 GB/s | ~0.4 |
-| 2000 | ~3 GFLOP/s | ~1.6 GB/s (DDR1) | ~1.9 |
-| 2010 | ~50 GFLOP/s | ~12 GB/s (DDR3) | ~4.2 |
-| 2020 | ~3,000 GFLOP/s (GPU) | ~900 GB/s (HBM2) | ~3.3 |
-| 2024 | ~989,000 GFLOP/s (H100 BF16) | ~3,350 GB/s (HBM3) | ~295 |
+| Year | Accelerator | Dense tensor peak | Memory bandwidth | FLOP per byte (ridge) |
+|:----:|-------------|:-----------------:|:----------------:|:---------------------:|
+| 2017 | V100 | 125 TFLOP/s (FP16) | 0.9 TB/s (HBM2) | ~139 |
+| 2020 | A100 | 312 TFLOP/s (BF16) | 2.0 TB/s (HBM2e) | ~153 |
+| 2022 | H100 | 989 TFLOP/s (BF16) · 1,979 (FP8) | 3.35 TB/s (HBM3) | ~295 · ~591 |
+| 2024 | B200 | 2,250 (BF16) · 9,000 (FP4) | 8 TB/s (HBM3e) | ~281 · ~1,125 |
+| 2025 | B300 | 15,000 TFLOP/s (FP4) | 8 TB/s (HBM3e) | ~1,875 |
+| 2026 | Rubin (announced) | 35,000 TFLOP/s (FP4, training) | ~20–22 TB/s (HBM4) | ~1,600–1,750 |
 
-Compute has grown roughly 10,000× in that window. Bandwidth grew roughly 25,000× — faster, but starting from a much lower base. Today a modern GPU can execute ~295 floating-point operations for every single byte it fetches from main memory. As we will see in a moment, this number (the **ridge point**) is the dividing line between two very different worlds.
+At a fixed precision the ridge drifts up slowly; each new low-precision format then makes it jump, because it doubles the math per byte of silicon without making memory any faster. Over twenty years of server hardware, Gholami et al. measured peak FLOP/s growing **3.0× every two years** against **1.6×** for DRAM bandwidth and **1.4×** for interconnect bandwidth. Today an H100 can do ~295 BF16 operations, and a B300 ~1,875 FP4 operations, for every byte it fetches from HBM.
+
+<figure class="figure"><img src="./assets/images/memory_wall.svg" alt="Chart of peak tensor FLOP/s and memory bandwidth for NVIDIA datacenter GPUs from V100 to Rubin, both indexed to V100, showing compute growing much faster than bandwidth" loading="lazy"><figcaption>Compute and bandwidth of each generation relative to V100 (log scale), from <code>assets/data/accelerators.json</code>. The widening gap is the memory wall.</figcaption></figure>
 
 > The memory wall is not a temporary engineering gap that will be closed next year. It reflects a deep physical asymmetry: transistors do arithmetic cheaply; moving electrical charge across long wires is expensive in energy and time. Memory is inherently less parallel than logic.
+
+The energy bill makes the same point. On Horowitz's widely cited 45 nm measurements, fetching operands costs orders of magnitude more than the arithmetic done on them:
+
+<div class="receipts">
+<div class="receipt">
+<div class="r-head">ENERGY RECEIPT</div>
+<div class="r-sub">one FP32 multiply-add · 45 nm · per op</div>
+<div class="r-rule"></div>
+<div class="r-line"><span>FP32 multiply</span><span>3.7 pJ</span></div>
+<div class="r-line"><span>FP32 add</span><span>0.9 pJ</span></div>
+<div class="r-rule"></div>
+<div class="r-total"><span>ARITHMETIC</span><span>4.6 pJ</span></div>
+<div class="r-rule"></div>
+<div class="r-line muted"><span>64-bit read, 8 KB SRAM</span><span>10 pJ</span></div>
+<div class="r-line muted"><span>64-bit read, 1 MB SRAM</span><span>100 pJ</span></div>
+<div class="r-line hl"><span>64-bit read, DRAM</span><span>1,300–2,600 pJ</span></div>
+<div class="r-rule"></div>
+<div class="r-total"><span>DRAM / ARITH</span><span>~280–560×</span></div>
+<div class="r-foot">source: M. Horowitz, ISSCC 2014</div>
+<div class="r-barcode"></div>
+</div>
+<div class="receipt">
+<div class="r-head">ENERGY RECEIPT</div>
+<div class="r-sub">one INT8 multiply-add · 45 nm · per op</div>
+<div class="r-rule"></div>
+<div class="r-line"><span>8-bit integer multiply</span><span>0.2 pJ</span></div>
+<div class="r-line"><span>32-bit integer add</span><span>0.1 pJ</span></div>
+<div class="r-rule"></div>
+<div class="r-total"><span>ARITHMETIC</span><span>0.3 pJ</span></div>
+<div class="r-rule"></div>
+<div class="r-line hl"><span>64-bit read, DRAM</span><span>1,300–2,600 pJ</span></div>
+<div class="r-line muted"><span>(8 INT8 weights per read)</span><span>÷ 8</span></div>
+<div class="r-rule"></div>
+<div class="r-total"><span>DRAM / ARITH</span><span>~540–1,080×</span></div>
+<div class="r-foot">cheaper math makes data movement an even larger share</div>
+<div class="r-barcode"></div>
+</div>
+</div>
+
+Absolute picojoules have fallen several-fold since 45 nm, but wires shrink more slowly than transistors, so the *ratio* between moving data and computing on it has not improved. Every technique in Parts IV–VI either moves fewer bytes or reuses each byte more times.
 
 ---
 
@@ -68,7 +111,7 @@ A helpful analogy: a highway and a racing motorcycle. The highway has high *band
 
 **For large ML workloads, bandwidth is almost always what matters,** because we are streaming enormous arrays sequentially. A single matrix multiply reads $M \times K$ bytes from one operand and $K \times N$ bytes from another — at large sizes, this is gigabytes, and we can pipeline the requests to keep the memory bus saturated. Latency is hidden by **parallelism and prefetching**: the GPU launches thousands of concurrent threads, so while one warp is stalled waiting for a memory response, hundreds of others are computing. The latency becomes invisible behind the queue depth. This is called **latency hiding through throughput**, and it is one of the central architectural principles behind the GPU's success at DNN workloads.
 
-> **Latency still matters in two places:** (1) small, irregular accesses — e.g., sparse index lookups, tree-traversal — where you cannot pipeline, and (2) the decode phase of LLM serving, where the KV cache lookup is effectively random-access per-token.
+> **Latency still matters in two places:** (1) small, irregular accesses (sparse index lookups, tree traversal, embedding tables) where you cannot pipeline, and (2) LLM decode, where each token must wait for the previous one: thousands of short, dependent steps, each paying kernel-launch and synchronization latency. (KV-cache reads are scattered across pages, but each page is a contiguous block, so they still stream reasonably well.)
 
 ---
 
@@ -139,6 +182,12 @@ Let's verify with our matmul example:
 
 ---
 
+Try it: pick a chip and a workload, and slide the batch size until the point crosses the ridge.
+
+<div class="lab" data-lab="roofline"><noscript><div class="lab-noscript">The roofline lab needs JavaScript.</div></noscript></div>
+
+---
+
 ## Classifying ML Operations by Arithmetic Intensity
 
 <div class="diagram">
@@ -147,7 +196,7 @@ Let's verify with our matmul example:
   <div class="diagram-card red">
     <div class="card-icon">🧠</div>
     <div class="card-title">Memory-Bound (AI &lt; 295)</div>
-    <div class="card-desc">Elementwise ops (~1), LayerNorm (~5), Softmax (~3), Embedding lookup (~0.5), GEMV batch=1 (~1), KV-cache read (~1)</div>
+    <div class="card-desc">Elementwise ops (~0.2–1), LayerNorm (~1–5), Softmax (~1–3), Embedding lookup (~0.5), GEMV batch=1 (~1), decode attention over the KV cache (~1–8: it equals the GQA group size, independent of batch)</div>
   </div>
   <div class="diagram-card orange">
     <div class="card-icon">⚖️</div>
@@ -198,7 +247,7 @@ At decode with batch size 1, **every single parameter must be read from HBM exac
 
 $$t_{\text{token}} \approx \frac{14 \times 10^9 \text{ bytes}}{3.35 \times 10^{12} \text{ bytes/s}} \approx 4.2 \text{ ms/token}$$
 
-That gives roughly $1 / 0.0042 \approx 238$ tokens/second — which matches observed H100 decode throughput for 7B models at batch=1. The arithmetic units are largely idle; the bottleneck is the **HBM bandwidth**.
+That gives a ceiling of $1 / 0.0042 \approx 238$ tokens/second. Well-tuned engines reach roughly 70–85 % of it (~170–200 tokens/s for a 7B model on one H100 at batch 1) once KV-cache reads, small kernels and launch overheads are added. The arithmetic units are largely idle; the bottleneck is the **HBM bandwidth**.
 
 > This is the single most important number in practical LLM serving: **at batch=1, a 7B BF16 model on H100 is bounded to ~238 tokens/s by HBM bandwidth alone, regardless of how fast the tensor cores are.**
 
@@ -212,6 +261,8 @@ At batch=1: AI ≈ 1 FLOP/byte (memory-bound).
 At batch=32: AI ≈ 32 FLOP/byte (still memory-bound but 32× better utilization).
 At batch=295: AI ≈ 295 FLOP/byte (at the ridge point — compute and bandwidth co-limited).
 At batch=1024: AI ≈ 1024 FLOP/byte (compute-bound — weight-reading is amortized).
+
+Two caveats keep this from being the whole story. It describes the *weight* GEMMs only: attention over the KV cache gains nothing from batching, because every sequence reads its own cache. And it assumes BF16 weights; with FP8 weights the same batch reaches twice the intensity.
 
 This is why **continuous batching** and large batch sizes are so important for inference serving. It is not primarily about better GPU utilization in a vague sense — it is about moving arithmetic intensity past the ridge point.
 
@@ -360,9 +411,48 @@ Naive:  HBM → LayerNorm → HBM → Dropout → HBM → Add → HBM  (4 round-
 Fused:  HBM ──────────────────────────────────────────→ HBM  (1 round-trip)
 ```
 
-Operator fusion (as done in FlashAttention, Triton kernels, torch.compile + inductor) keeps the intermediate results in SRAM (the GPU's on-chip "L1 cache" / shared memory — ~192 KB/SM on H100) instead of bouncing them through HBM. The effective arithmetic intensity rises dramatically, because the numerator (FLOPs) stays the same but the denominator (HBM bytes) shrinks.
+Operator fusion (as done in FlashAttention, Triton kernels, torch.compile + inductor) keeps the intermediate results in SRAM (the GPU's on-chip "L1 cache" / shared memory — up to 228 KB of shared memory per SM on H100) instead of bouncing them through HBM. The effective arithmetic intensity rises dramatically, because the numerator (FLOPs) stays the same but the denominator (HBM bytes) shrinks.
 
 **FlashAttention** is the canonical example: the naive softmax attention reads/writes $O(T^2)$ bytes to HBM (the $T \times T$ attention score matrix, $T$ = sequence length). FlashAttention tiles the computation so intermediate scores live in SRAM, reducing HBM traffic to $O(T)$ — a massive win for long sequences.
+
+---
+
+## Diagnosing a Slow Kernel
+
+The roofline tells you which wall you are under; a profiler tells you where you actually are. Put together, they give a short decision path that covers most "why is this slow?" questions:
+
+<!-- flowchart:bottleneck -->
+<div class="flowchart" id="fc-bottleneck">
+<div class="fc-title">Why is my kernel slow? A roofline diagnosis</div>
+<svg viewBox="0 0 780 470" width="780" role="img" aria-label="Why is my kernel slow? A roofline diagnosis">
+<path class="fc-edge" d="M330,40 L330,65"/><polygon class="fc-head" points="330,65 326.1,58 333.9,58"/>
+<path class="fc-edge yes" d="M495,92 L525,92"/><polygon class="fc-head yes" points="525,92 518,95.8 518,88.2"/><text class="fc-elabel yes" x="505" y="86" text-anchor="start">yes</text>
+<path class="fc-edge no" d="M330,119 L330,161"/><polygon class="fc-head no" points="330,161 326.1,154 333.9,154"/><text class="fc-elabel no" x="336" y="133" text-anchor="start">no</text>
+<path class="fc-edge yes" d="M270,215 L270,242 L175,242 L175,269"/><polygon class="fc-head yes" points="175,269 171.2,262 178.8,262"/><text class="fc-elabel yes" x="250" y="236" text-anchor="end">yes</text>
+<path class="fc-edge no" d="M390,215 L390,242 L560,242 L560,269"/><polygon class="fc-head no" points="560,269 556.1,262 563.9,262"/><text class="fc-elabel no" x="410" y="236" text-anchor="start">no</text>
+<path class="fc-edge yes" d="M135,311 L135,345.5 L95,345.5 L95,380"/><polygon class="fc-head yes" points="95,380 91.2,373 98.8,373"/><text class="fc-elabel yes" x="118" y="360" text-anchor="end">yes</text>
+<path class="fc-edge no" d="M215,311 L215,345.5 L285,345.5 L285,380"/><polygon class="fc-head no" points="285,380 281.1,373 288.9,373"/><text class="fc-elabel no" x="262" y="360" text-anchor="start">no</text>
+<path class="fc-edge no" d="M520,311 L520,345.5 L475,345.5 L475,380"/><polygon class="fc-head no" points="475,380 471.1,373 478.9,373"/><text class="fc-elabel no" x="498" y="360" text-anchor="end">no</text>
+<path class="fc-edge yes" d="M600,311 L600,345.5 L670,345.5 L670,380"/><polygon class="fc-head yes" points="670,380 666.1,373 673.9,373"/><text class="fc-elabel yes" x="647" y="360" text-anchor="start">yes</text>
+<g class="fc-node start"><rect x="205" y="8" width="250" height="32" rx="16"/><text x="330" y="28" text-anchor="middle">Model step or kernel is slow</text></g>
+<g class="fc-node decision"><polygon points="165,92 179,65 481,65 495,92 481,119 179,119"/><text x="330" y="90" text-anchor="middle">Is the accelerator idle between kernels?</text><text class="sub" x="330" y="103" text-anchor="middle">gaps in the profiler timeline</text></g>
+<g class="fc-node leaf k-red"><rect x="525" y="64" width="230" height="56" rx="6"/><text x="640" y="84" text-anchor="middle">Overhead-bound</text><text class="sub" x="640" y="97" text-anchor="middle">CUDA Graphs, torch.compile,</text><text class="sub" x="640" y="109" text-anchor="middle">fuse tiny ops, bigger batches</text></g>
+<g class="fc-node decision"><polygon points="165,188 179,161 481,161 495,188 481,215 179,215"/><text x="330" y="186" text-anchor="middle">Arithmetic intensity below the ridge?</text><text class="sub" x="330" y="199" text-anchor="middle">FLOPs ÷ bytes moved vs peak ÷ bandwidth</text></g>
+<g class="fc-node decision"><polygon points="25,290 39,269 311,269 325,290 311,311 39,311"/><text x="175" y="294" text-anchor="middle">Achieved bandwidth ≥ ~70 % of peak?</text></g>
+<g class="fc-node decision"><polygon points="410,290 424,269 696,269 710,290 696,311 424,311"/><text x="560" y="294" text-anchor="middle">Achieved FLOP/s ≥ ~60 % of peak?</text></g>
+<a href="./29_memory_hierarchy_in_action.html"><g class="fc-node leaf k-purple"><rect x="5" y="380" width="180" height="56" rx="6"/><text x="95" y="400" text-anchor="middle">Memory-bound</text><text class="sub" x="95" y="413" text-anchor="middle">cut bytes: fuse, quantize,</text><text class="sub" x="95" y="425" text-anchor="middle">batch, keep data in SRAM</text></g></a>
+<a href="./15_gpus.html"><g class="fc-node leaf k-yellow"><rect x="190" y="380" width="190" height="56" rx="6"/><text x="285" y="400" text-anchor="middle">Latency-bound</text><text class="sub" x="285" y="413" text-anchor="middle">more blocks in flight, coalesce,</text><text class="sub" x="285" y="425" text-anchor="middle">async copies (TMA, cp.async)</text></g></a>
+<a href="./24_datatypes_and_silicon.html"><g class="fc-node leaf k-orange"><rect x="385" y="380" width="180" height="56" rx="6"/><text x="475" y="400" text-anchor="middle">Under-using the math units</text><text class="sub" x="475" y="413" text-anchor="middle">tile sizes, dims ÷ 16, pipelining,</text><text class="sub" x="475" y="425" text-anchor="middle">a dtype the tensor cores run</text></g></a>
+<a href="./25_quantization_hardware_view.html"><g class="fc-node leaf k-green"><rect x="575" y="380" width="190" height="56" rx="6"/><text x="670" y="400" text-anchor="middle">Compute-bound</text><text class="sub" x="670" y="413" text-anchor="middle">lower precision, 2:4 sparsity,</text><text class="sub" x="670" y="425" text-anchor="middle">more chips</text></g></a>
+</svg>
+<div class="fc-caption">Measure first (Nsight Systems for gaps, Nsight Compute or the PyTorch profiler for achieved FLOP/s and bytes/s), then walk down. The 70 % and 60 % thresholds are rules of thumb, not laws.</div>
+</div>
+<!-- /flowchart:bottleneck -->
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Low-precision formats raise the ridge point every generation (B300's FP4 ridge is ~1,875 FLOP/byte). For a serving system whose batch size is set by latency targets, does a newer GPU make decode more or less efficient in percentage-of-peak terms, and what does that imply about which upgrades actually pay off?</p>
+</div>
 
 ---
 
@@ -403,7 +493,7 @@ The practical upshot, stated plainly:
 1. **LLM decode is memory-bandwidth-bound.** Quantize weights to save bytes; batch requests to amortize weight reads.
 2. **LLM prefill is compute-bound** (long sequences, large GEMMs). FlashAttention's memory savings are more important here than for decode.
 3. **Training is compute-bound** for large GEMM workloads. The bottleneck is tensor core utilization; FP8 saves a factor of 2 in bandwidth but the gain is primarily in compute throughput (BF16 → FP8 doubles tensor core throughput on H100).
-4. **Activation memory during training is memory-bound** (checkpointing saves HBM by re-computing; the re-compute is cheap because it's memory-bound in the first place).
+4. **Activation memory limits training batch size and sequence length.** Full activation checkpointing trades roughly 20–33 % extra compute (a second forward pass) for a large cut in stored activations; *selective* recomputation re-runs only the cheap, memory-hungry parts such as attention softmax.
 
 ---
 
@@ -412,13 +502,52 @@ The practical upshot, stated plainly:
 - The **memory wall** reflects a decades-long divergence: compute throughput grew faster than memory bandwidth. On an H100, the ridge point is ~295 FLOP/byte.
 - **Arithmetic intensity** (FLOP/byte) classifies any kernel as memory-bound (AI < ridge) or compute-bound (AI > ridge). The **Roofline model** gives a tight upper bound on achievable performance.
 - **LLM autoregressive decode at batch=1** has arithmetic intensity ~1 FLOP/byte — solidly memory-bound. You are paying full HBM bandwidth for every parameter, every token.
-- **Batching raises arithmetic intensity** proportionally. Doubling batch size doubles AI; the ridge point for a 7B model on H100 is around batch ≈ 295.
+- **Batching raises arithmetic intensity** of the weight GEMMs proportionally: with BF16 weights, AI ≈ batch size, so an H100 crosses its ~295 FLOP/byte ridge near batch ≈ 300. Attention over the KV cache does not benefit.
 - **Quantization accelerates memory-bound kernels** by reducing bytes streamed, not by reducing FLOPs. INT4 weights → 4× fewer bytes → up to 4× better decode throughput (bandwidth-limited).
 - **Operator fusion** (FlashAttention, torch.compile, Triton) reduces HBM round-trips by keeping intermediates in on-chip SRAM, raising effective arithmetic intensity.
 - FLOPs alone are a misleading performance metric. Always ask: **which roof am I under?**
 
+## Check Yourself
+
+<details class="check">
+<summary>Compute the ridge point of an MI300X in BF16, and say whether a batch-64 BF16 decode GEMM is memory- or compute-bound on it.</summary>
+<p>1,307 TFLOP/s ÷ 5.3 TB/s ≈ 247 FLOP/byte. A batch-64 decode GEMM with BF16 weights has AI ≈ 64, well below 247, so it is memory-bound and runs at roughly 64 × 5.3 ≈ 340 TFLOP/s at best.</p>
+</details>
+
+<details class="check">
+<summary>Why does quantizing weights to INT4 speed up batch-1 decode even though the GPU then dequantizes them back to BF16 for the math?</summary>
+<p>Batch-1 decode is memory-bound: time is set by bytes read, and INT4 reads ~4× fewer bytes than BF16. The extra dequantization FLOPs are spent on otherwise idle arithmetic units, so they are almost free.</p>
+</details>
+
+<details class="check">
+<summary>What is the arithmetic intensity of a square BF16 GEMM with M = N = K = 1024, and is it compute-bound on an H100?</summary>
+<p>2 × 1024³ / (2 × 3 × 1024²) = 1024/3 ≈ 341 FLOP/byte, just above the 295 ridge, so it is compute-bound, but only barely: small GEMMs sit close to the ridge.</p>
+</details>
+
+<details class="check">
+<summary>Why does batching not help decode attention the way it helps the weight GEMMs?</summary>
+<p>Weights are shared by all sequences in the batch, so one read serves B sequences. Each sequence's KV cache is private, so B sequences read B caches: bytes and FLOPs grow together and the intensity stays at the GQA group size.</p>
+</details>
+
+<details class="check">
+<summary>Name the three performance regimes in Horace He's framing and one fix for each.</summary>
+<p>Overhead-bound (GPU idle between small kernels): CUDA Graphs or torch.compile. Memory-bound: fuse operations or use fewer bytes (quantize). Compute-bound: use a faster datatype (FP8/FP4), sparsity, or more chips.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Hitting the Memory Wall: Implications of the Obvious | W. Wulf, S. McKee, ACM SIGARCH CAN 1995 | [doi.org/10.1145/216585.216588](https://doi.org/10.1145/216585.216588) | The original memory-wall argument |
+| Roofline: An Insightful Visual Performance Model for Multicore Architectures | S. Williams, A. Waterman, D. Patterson, CACM 2009 | [doi.org/10.1145/1498765.1498785](https://doi.org/10.1145/1498765.1498785) | The roofline model and ridge point |
+| AI and Memory Wall | A. Gholami et al., IEEE Micro 2024 | [arxiv.org/abs/2403.14123](https://arxiv.org/abs/2403.14123) | FLOP/s 3.0× vs DRAM bandwidth 1.6× per two years |
+| Computing's Energy Problem (and what we can do about it) | M. Horowitz, ISSCC 2014 | [doi.org/10.1109/ISSCC.2014.6757323](https://doi.org/10.1109/ISSCC.2014.6757323) | Energy per arithmetic op vs per memory access at 45 nm |
+| Making Deep Learning Go Brrrr From First Principles | H. He, 2022 | [horace.io/brrr_intro.html](https://horace.io/brrr_intro.html) | Overhead-, memory- and compute-bound regimes |
+| FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness | T. Dao et al., NeurIPS 2022 | [arxiv.org/abs/2205.14135](https://arxiv.org/abs/2205.14135) | Tiling attention to keep the T×T matrix out of HBM |
+| Reducing Activation Recomputation in Large Transformer Models | V. Korthikanti et al., MLSys 2023 | [arxiv.org/abs/2205.05198](https://arxiv.org/abs/2205.05198) | Selective recomputation and activation-memory formulas |
+
 ---
 
-*Next: [Chapter 12 — Buses & Interconnects](./12_buses_and_interconnects.md), where we follow data as it moves between chips — from on-chip NoC fabrics to PCIe, NVLink, and cluster-scale networks.*
+**Next:** [Chapter 12 — Buses & Interconnects](./12_buses_and_interconnects.md) — We follow data as it moves between chips — from on-chip NoC fabrics to PCIe, NVLink, and cluster-scale networks.
 
 [← Back to Table of Contents](./README.md)

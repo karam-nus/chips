@@ -132,6 +132,13 @@ Add it up across a real model and the matmuls dominate overwhelmingly:
 | Batched GEMM | $QK^\top$, $PV$ in attention | (included above) | Tensor Cores |
 | Elementwise / reductions | softmax, LayerNorm, GELU, residual add | ~1–5% | CUDA cores (memory-bound) |
 
+<div class="stats">
+  <div class="stat"><div class="stat-num"><em>2</em>MNK</div><div class="stat-label">FLOPs in one GEMM: the only formula you need</div></div>
+  <div class="stat"><div class="stat-num">~<em>95</em>%+</div><div class="stat-label">of a Transformer's FLOPs are matrix multiplies</div></div>
+  <div class="stat"><div class="stat-num"><em>295</em></div><div class="stat-label">FLOP/byte: H100 BF16 ridge point</div></div>
+  <div class="stat"><div class="stat-num"><em>1,365</em></div><div class="stat-label">FLOP/byte: a 4096³ BF16 GEMM, far above the ridge</div></div>
+</div>
+
 > The entire reason **Tensor Cores** exist ([Ch 15](./15_gpus.md), [Ch 24](./24_datatypes_and_silicon.md)) is this 95%+. If you build dedicated silicon that does only one thing — a small matmul fragment per clock — and that one thing is 95% of the workload, you win. On an H100 the Tensor Cores deliver ~989 BF16 TFLOPS versus ~62 FP32 TFLOPS from the general CUDA cores: a ~16× gap. A kernel that doesn't hit Tensor Cores leaves the GPU 90%+ idle.
 
 ---
@@ -149,10 +156,10 @@ A matmul wants throughput. It has no branches, no data-dependent control flow, a
     <div class="compare-title">CPU (e.g. EPYC Genoa)</div>
     <ul>
       <li>~64–96 OoO cores, AVX-512 SIMD (16 fp32 MACs/core/cycle)</li>
-      <li>~3–5 TFLOPS fp32 peak across all cores</li>
+      <li>~7–9 TFLOPS fp32 peak (96 cores × 32 FLOP/cycle)</li>
       <li>~461 GB/s DDR5 memory bandwidth</li>
       <li>Spends transistors on caches/prediction, not MACs</li>
-      <li>Matmul: ~50+ ms — bandwidth + ALU starved</li>
+      <li>Matmul (~137 GFLOP): ~20–30 ms at realistic efficiency</li>
     </ul>
   </div>
   <div class="compare-side right">
@@ -162,7 +169,7 @@ A matmul wants throughput. It has no branches, no data-dependent control flow, a
       <li>~989 BF16 TFLOPS via Tensor Cores</li>
       <li>3.35 TB/s HBM3 bandwidth (~7× the CPU)</li>
       <li>Spends transistors on MACs; hides latency via 64 warps/SM</li>
-      <li>Matmul (~137 GFLOP): ~0.15 ms — Tensor-Core-bound</li>
+      <li>Matmul (~137 GFLOP): ~0.14 ms at peak, ~0.2 ms in practice</li>
     </ul>
   </div>
 </div>
@@ -173,6 +180,8 @@ Three GPU properties make the difference, each tracing back to an earlier chapte
 1. **Thousands of MAC units.** The GPU spends its transistor budget ([Ch 1](./01_what_is_a_chip.md)) on arithmetic, not control. Tensor Cores pack the multiply-accumulate density a matmul craves.
 2. **HBM bandwidth.** A matmul streams gigabytes of weights/activations. The H100's 3.35 TB/s HBM3 ([Ch 9](./09_memory_types.md)) feeds the MACs; a CPU's ~461 GB/s DDR5 starves them.
 3. **Latency hidden by oversubscription.** With up to 64 warps resident per SM, when one warp stalls on an HBM load (~300–400 cycles), 63 others run ([Ch 15](./15_gpus.md)). The CPU instead spends silicon predicting and reordering to hide latency for *one* thread.
+
+The gap is about 100×, and it is not shrinking as fast as CPU vendors would like. Intel's AMX tile units (Sapphire Rapids onward) and Arm's SME raise a server CPU's BF16 peak by roughly an order of magnitude, which is enough for small-batch inference on the host, but the result is still a fraction of one GPU and is fed by DDR5 rather than HBM ([Chapter 14](./14_cpus.md)).
 
 ### The Roofline Says the Same Thing
 
@@ -222,7 +231,25 @@ Put hardware and software together and you get a self-reinforcing loop that expl
 </div>
 </div>
 
-Each GPU generation roughly **doubles** effective Tensor Core throughput *and* HBM bandwidth ([Ch 15](./15_gpus.md), [Ch 34](./34_generational_improvements.md)), keeping the ridge point near 200–400 FLOP/byte so that large matmuls stay compute-bound generation after generation. That predictable doubling let researchers bet on scaling laws, which created demand for the next doubling. The flywheel is why a 2012 contest entry on two 3 GB cards became 2024 clusters of tens of thousands of 80–192 GB GPUs.
+Each GPU generation has multiplied Tensor Core throughput by roughly 2–3× (more when a new low-precision format arrives) while HBM bandwidth grew about 1.5–2× ([Ch 15](./15_gpus.md), [Ch 34](./34_generational_improvements.md)). The ridge point therefore keeps *rising*: about 140 FLOP/byte on V100, 295 on H100 in BF16, and roughly 1,900 on B300 in FP4. Large training GEMMs stay comfortably compute-bound; everything else, decode above all, drifts further into memory-bound territory each generation. That predictable growth let researchers bet on scaling laws, which created demand for the next generation. The flywheel is why a 2012 contest entry on two 3 GB cards became 2026 clusters of hundreds of thousands of GPUs with 192–288 GB each.
+
+### Did GPUs Win for Good? The 2026 Scorecard
+
+The argument of this chapter, that neural networks are matrix multiplies, is not GPU-specific. Anyone who builds a dense matmul engine with fast memory gets the same structural fit, and by 2026 several of them are winning real workloads. What the GPU still has is the software stack, rack-scale NVLink systems and supply.
+
+| Challenger | 2026 position | What it attacks |
+|---|---|---|
+| **Google TPU** | Ironwood (v7) generally available; TPU 8 split into training (8t) and inference (8i) parts; sold to outside labs at large scale (Anthropic agreed in late 2025 to use up to a million TPUs) | Training and serving at pod scale with a mature compiler (XLA) |
+| **AWS Trainium** | Trainium2 clusters in production; Trainium3 generally available since Dec 2025; Trainium4 announced with NVLink Fusion support | Cost per token inside one cloud |
+| **AMD Instinct** | MI355X shipping; MI450/MI455X "Helios" racks due 2H 2026 with UALink scale-up; OpenAI signed for 6 GW of AMD GPUs starting with MI450 | Memory capacity per GPU and an open scale-up fabric |
+| **SRAM-first inference** | Cerebras listed publicly in 2026; NVIDIA licensed Groq's LPU technology (Dec 2025) and now pairs Groq 3 LPX racks with Vera Rubin for decode | Latency-bound decode, where HBM bandwidth is the wall |
+
+The pattern matches the rest of this guide. The more a workload looks like one big, regular GEMM (pretraining), the more any good matmul engine can compete. The more it depends on a broad software stack, many model types and fast iteration, the more the GPU's ecosystem matters. And the parts of inference that are memory-bound are where specialised silicon is getting its foothold, even inside NVIDIA's own roadmap ([Chapter 33](./33_design_paradigm_wars.md)).
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>If the matmul fit is structural and every vendor can build a matmul engine, the remaining GPU advantages are software, interconnect and supply. Which of the three do you think erodes first, and which part of your own stack would notice?</p>
+</div>
 
 ---
 
@@ -239,6 +266,7 @@ def gemm_flops(M: int, N: int, K: int) -> int:
 
 # ---- A Transformer MLP block as two explicit GEMMs ----------------------
 B, T, d_model, d_ff = 8, 2048, 4096, 11008      # Llama-7B-ish dimensions
+# (Llama's SwiGLU MLP has a third "gate" GEMM; we keep two for clarity.)
 M = B * T                                        # tall dim: batch*seq folds into M
 
 x  = torch.randn(M, d_model, dtype=torch.bfloat16, device='cuda')   # [16384, 4096]
@@ -250,7 +278,7 @@ y = h @ W2                                        # GEMM  M×d_ff   · d_ff×d_m
 # The SiLU between them is the memory-bound "leftover" — not a matmul.
 
 mlp_flops = gemm_flops(M, d_ff, d_model) + gemm_flops(M, d_model, d_ff)
-print(f"MLP block: {mlp_flops/1e9:.1f} GFLOP   (two GEMMs, M={M})")  # ~2956 GFLOP
+print(f"MLP block: {mlp_flops/1e9:.1f} GFLOP   (two GEMMs, M={M})")  # 2954.9 GFLOP
 
 # ---- One attention head as batched matmuls ------------------------------
 d_h = 128
@@ -263,7 +291,7 @@ p = torch.softmax(s, dim=-1)                      # memory-bound, NOT a matmul
 o = p @ v                                          # [B, T, d_h] batched GEMM
 
 attn_flops = B * (gemm_flops(T, T, d_h) + gemm_flops(T, d_h, T))
-print(f"Attn (1 head): {attn_flops/1e9:.1f} GFLOP  (two batched GEMMs)")
+print(f"Attn (1 head): {attn_flops/1e9:.1f} GFLOP  (two batched GEMMs)")  # 17.2 GFLOP
 
 # ---- Sanity: matmul is the workload ------------------------------------
 # Everything that matters for throughput is the GEMM term (2*M*N*K).
@@ -317,11 +345,51 @@ Understanding *why* GPUs won reframes nearly every architecture and optimization
 - Every layer reduces to a **GEMM**: linear layers are $Y=XW$ with $M=B\cdot T$; attention is batched $QK^\top$ and $PV$; convolution is im2col/implicit GEMM. A GEMM costs $\mathbf{2MNK}$ FLOPs, and **>90% of model FLOPs are GEMM** → Tensor Cores.
 - GPUs beat CPUs not by being "faster" but by **philosophy**: thousands of MAC units, TB/s HBM, and latency hidden by warp oversubscription — exactly what a branchless, infinitely-parallel matmul wants. The roofline puts large GEMMs at AI ≈ $M/3 \gg 295$, firmly compute-bound.
 - The **software moat** (cuBLAS, cuDNN, NCCL, framework integration) is why raw FLOPS aren't enough to displace NVIDIA — your stack defaults to `cuda` for a reason (Ch 33).
-- The **flywheel** (bigger models → more demand → better GPUs → bigger models), powered by per-generation doubling of TC FLOPS and HBM bandwidth, explains the scale-up of the last decade.
+- The **flywheel** (bigger models → more demand → better GPUs → bigger models) explains the scale-up of the last decade. Compute has grown faster than bandwidth, so the ridge point rises every generation.
+- The matmul fit is not GPU-exclusive: TPUs, Trainium, AMD Instinct and SRAM-first inference chips all compete in 2026. The GPU's lasting advantages are software, rack-scale interconnect and supply.
 - For you: **architect models as big matmuls**, pick Tensor-Core dtypes, batch to raise arithmetic intensity, and treat non-matmul ops as bandwidth-bound leftovers to fuse away.
+
+## Check Yourself
+
+<details class="check">
+<summary>How many FLOPs does a 16,384 × 4,096 by 4,096 × 11,008 matrix multiply take, and how long would it take at H100's dense BF16 peak?</summary>
+<p>2 × 16,384 × 4,096 × 11,008 ≈ 1.48 × 10¹² FLOPs. At 989 TFLOP/s that is about 1.5 ms; real kernels reach 70–80% of peak, so about 2 ms.</p>
+</details>
+
+<details class="check">
+<summary>What is the arithmetic intensity of a square N×N×N BF16 GEMM, and at what N does it cross H100's BF16 ridge of ~295 FLOP/byte?</summary>
+<p>FLOPs = 2N³; bytes = 3 × 2N² = 6N² (read A and B, write C once); intensity = N/3. It crosses 295 at N ≈ 885, so any square GEMM above about 900 is compute-bound on H100 in BF16.</p>
+</details>
+
+<details class="check">
+<summary>Why does the softmax inside attention matter for runtime even though it is a tiny fraction of the FLOPs?</summary>
+<p>It is elementwise and memory-bound: it reads and writes the whole T×T score matrix for almost no arithmetic. Unfused, it can take as long as the matmuls around it, which is exactly what FlashAttention's fusion removes.</p>
+</details>
+
+<details class="check">
+<summary>Why did the ridge point rise from about 140 FLOP/byte (V100) to about 1,900 (B300 FP4)?</summary>
+<p>Tensor throughput grew faster than HBM bandwidth: more and narrower MAC units each generation (FP16 → FP8 → FP4) versus memory steps of about 1.5–2× per generation.</p>
+</details>
+
+<details class="check">
+<summary>Name one workload where a TPU or Trainium chip can plausibly beat a GPU on cost, and one where the GPU's ecosystem is hard to replace.</summary>
+<p>Large, stable pretraining or serving of one model family inside a single cloud, where the compiler and fabric are tuned for it. Research with many model types, custom kernels and fast iteration, where CUDA libraries and tooling matter more than peak FLOPs.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| ImageNet Classification with Deep Convolutional Neural Networks | Krizhevsky, Sutskever & Hinton, 2012 | [papers.nips.cc/paper/2012/hash/c399862d3b9d6b…](https://papers.nips.cc/paper/2012/hash/c399862d3b9d6b76c8436e924a68c45b-Abstract.html) | AlexNet on two GTX 580s |
+| NVIDIA Tesla: A Unified Graphics and Computing Architecture | Lindholm et al., IEEE Micro 2008 | [doi.org/10.1109/MM.2008.31](https://doi.org/10.1109/MM.2008.31) | G80 and the CUDA programming model |
+| Roofline: An Insightful Visual Performance Model | Williams, Waterman & Patterson, 2009 | [doi.org/10.1145/1498765.1498785](https://doi.org/10.1145/1498765.1498785) | Ridge point and arithmetic intensity |
+| NVIDIA H100 Tensor Core GPU Architecture | NVIDIA, 2022 | [resources.nvidia.com/en-us-tensor-core](https://resources.nvidia.com/en-us-tensor-core) | Dense BF16 throughput and HBM3 bandwidth |
+| Anthropic to expand use of Google Cloud TPUs | Google Cloud / Anthropic, Oct 2025 | [anthropic.com/news/expanding-our-use-of-googl…](https://www.anthropic.com/news/expanding-our-use-of-google-cloud-tpus-and-services) | Up to one million TPUs for an outside lab |
+| AMD and OpenAI strategic partnership | OpenAI / AMD, Oct 2025 | [openai.com/index/openai-amd-strategic-partnership](https://openai.com/index/openai-amd-strategic-partnership) | 6 GW of Instinct GPUs starting with MI450 |
+| Amazon EC2 Trn3 UltraServers | AWS, Dec 2025 | [aws.amazon.com/about-aws/whats-new/2025/12/am…](https://aws.amazon.com/about-aws/whats-new/2025/12/amazon-ec2-trn3-ultraservers) | Trainium3 general availability |
 
 ---
 
-*Next: [Chapter 28 — Multi-GPU & Distributed Training](./28_multi_gpu_and_distributed_training.md), where one GPU stops being enough: we do the memory math that proves a 70B model can't fit on 80 GB, then tour every way to split the work — data, tensor, pipeline, expert, and n-D parallelism — and the collective communication that glues them together.*
+**Next:** [Chapter 28 — Multi-GPU & Distributed Training](./28_multi_gpu_and_distributed_training.md) — One GPU stops being enough: we do the memory math that proves a 70B model cannot train on 80 GB, then tour every way to split it.
 
 [← Back to Table of Contents](./README.md)

@@ -70,7 +70,7 @@ A phone-class SoC typically contains these blocks, all interconnected:
   <div class="diagram-card blue">
     <div class="card-icon">⚡</div>
     <div class="card-title">NPU / Neural Engine</div>
-    <div class="card-desc">Apple ANE (16–38 TOPS), Qualcomm Hexagon NPU (87 TOPS on 8 Gen 3), MediaTek APU. Fixed-function ML ASIC. See Ch 17.</div>
+    <div class="card-desc">Apple ANE (16-core, 35–38 TOPS), Qualcomm Hexagon NPU, MediaTek APU. Fixed-function ML engines; Apple's 2025 chips add neural accelerators to every GPU core too. See Ch 17.</div>
   </div>
   <div class="diagram-card purple">
     <div class="card-icon">📷</div>
@@ -105,7 +105,7 @@ A phone-class SoC typically contains these blocks, all interconnected:
 </div>
 </div>
 
-| Block | Area share (approx.) | Power at full load |
+| Block | Area share (rough, varies by design) | Power at full load |
 |---|---|---|
 | CPU cluster | 15–25% | 2–5 W |
 | GPU | 20–35% | 3–8 W |
@@ -125,7 +125,7 @@ The most important architectural feature of an SoC for ML is **unified shared me
 CPU RAM (64 GB DDR5)  ←→  PCIe Gen5 (128 GB/s)  ←→  GPU VRAM (80 GB HBM3)
 ```
 
-To run inference, you copy weights from CPU RAM to GPU VRAM. For a 70B BF16 model (140 GB), this takes over 1 second just for the copy — before the first FLOP runs. And if the model doesn't fit in 80 GB VRAM, it can't run at all on a single GPU.
+To run inference, you copy weights from CPU RAM to GPU VRAM. For a 70B BF16 model (140 GB), this takes over 2 seconds over PCIe 5.0 just for the copy — before the first FLOP runs. And if the model doesn't fit in 80 GB VRAM, it can't run at all on a single GPU.
 
 In an SoC with unified memory:
 
@@ -141,7 +141,7 @@ This has a profound implication for LLMs: a quantized 70B INT4 model weighs ~35 
 
 ### Memory Bandwidth: The New Bottleneck
 
-With unified memory, the shared LPDDR bandwidth becomes the binding constraint. Transformer decode (one token at a time, batch=1) is **memory-bandwidth-bound**: you read all the weights once per token. At INT4, a 7B model has $7 \times 10^9 \times 0.5 = 3.5$ GB of weights. At 128 GB/s (Apple M3 LPDDR5X), reading all weights takes $3.5 / 128 = 27$ ms → **37 tokens/second max** (roofline ceiling, ignoring compute and KV-cache). See [Chapter 11](./11_memory_wall_and_bandwidth.md) for the roofline derivation.
+With unified memory, the shared LPDDR bandwidth becomes the binding constraint. Transformer decode (one token at a time, batch=1) is **memory-bandwidth-bound**: you read all the weights once per token. At INT4, a 7B model has $7 \times 10^9 \times 0.5 = 3.5$ GB of weights. At 120 GB/s (Apple M4), reading all weights takes $3.5 / 120 \approx 29$ ms → **~34 tokens/second max** (roofline ceiling, ignoring compute and KV-cache). See [Chapter 11](./11_memory_wall_and_bandwidth.md) for the roofline derivation.
 
 ---
 
@@ -156,12 +156,16 @@ Apple's M-series chips are the highest-profile example of unified-memory SoCs fo
 | M1 Ultra | 2022 | 20-core (2×) | 64 (2×) | 22 TOPS (2×) | 800 GB/s (2×) | 128 GB | LPDDR5 |
 | M2 | 2022 | 8-core | 10 | 15.8 TOPS | 100 GB/s | 24 GB | LPDDR5 |
 | M2 Max | 2023 | 12-core | 38 | 15.8 TOPS | 400 GB/s | 96 GB | LPDDR5 |
-| M3 | 2023 | 8-core | 10 | 18 TOPS | 100 GB/s | 24 GB | LPDDR5X |
-| M3 Max | 2023 | 16-core | 40 | 18 TOPS | 400 GB/s | 128 GB | LPDDR5X |
+| M3 | 2023 | 8-core | 10 | 18 TOPS | 100 GB/s | 24 GB | LPDDR5 |
+| M3 Max | 2023 | 16-core | 40 | 18 TOPS | 400 GB/s | 128 GB | LPDDR5 |
 | M4 | 2024 | 10-core | 10 | 38 TOPS | 120 GB/s | 32 GB | LPDDR5X |
 | M4 Max | 2024 | 16-core | 40 | 38 TOPS | 546 GB/s | 128 GB | LPDDR5X |
+| M3 Ultra | 2025 | 32-core (2×) | 80 (2×) | 36 TOPS (2×) | 819 GB/s | 512 GB | LPDDR5 |
+| M5 | 2025 | 10-core | 10 (+ neural accelerators) | 16-core ANE | 153 GB/s | 32 GB | LPDDR5X |
 
-> **The Ultra trick:** Apple's M1 Ultra (and M2/M3/M4 Ultra variants) are **two identical Max dies** connected by Apple's **UltraFusion** die-to-die interconnect (2.5 TB/s aggregate inter-die bandwidth). The OS and applications see it as one chip with doubled everything. This is an early form of **chiplet packaging** (see below and [Appendix E](./appendix_e_packaging.md)) implemented by Apple before chiplets became industry-standard.
+Apple skipped an M4 Ultra; the 2025 Mac Studio paired an M4 Max with an M3 Ultra, whose 512 GB is enough for a 4-bit model of ~400B parameters on a desktop.
+
+> **The Ultra trick:** Apple's M1, M2 and M3 Ultra are **two identical Max dies** connected by Apple's **UltraFusion** die-to-die interconnect (2.5 TB/s aggregate inter-die bandwidth). The OS and applications see it as one chip with doubled everything. This is an early form of **chiplet packaging** (see below and [Appendix E](./appendix_e_packaging.md)) implemented by Apple before chiplets became industry-standard.
 
 ### Practical LLM Bandwidth-Roofline on Apple M-Series
 
@@ -261,6 +265,28 @@ The partitioner minimizes **cross-processor data copies** (each copy costs bandw
 
 ---
 
+<div class="die-wrap">
+<div class="die-frame">
+<div class="die" style="grid-template-columns:repeat(6,1fr);grid-template-areas:'p p e e g g' 'p p e e g g' 'n n c c g g' 'i i m m v d';max-width:560px">
+<div class="blk cpu" style="grid-area:p">CPU P-cores<small>+ shared L2</small></div>
+<div class="blk cpu" style="grid-area:e">CPU E-cores</div>
+<div class="blk gpu" style="grid-area:g">GPU<small>shader cores (+ neural accelerators)</small></div>
+<div class="blk npu" style="grid-area:n">NPU / ANE</div>
+<div class="blk cache" style="grid-area:c">System-level cache</div>
+<div class="blk media" style="grid-area:i">ISP</div>
+<div class="blk mem" style="grid-area:m">LPDDR5X controllers</div>
+<div class="blk media" style="grid-area:v">Video</div>
+<div class="blk io" style="grid-area:d">I/O</div>
+</div>
+</div>
+<div class="die-caption">A flagship phone or laptop SoC, stylised (illustrative proportions, not a specific die). Everything shares the system-level cache and one LPDDR5X pool, which is why the memory controllers sit at the centre of every SoC floorplan.</div>
+</div>
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Unified memory lets a laptop hold a 70B model that no consumer GPU can, but at 10–20 tokens/s. A discrete GPU with a quarter of the memory runs smaller models 5–10× faster. For your workload, is capacity or bandwidth the scarcer resource, and does that answer change between prototyping and production?</p>
+</div>
+
 ## The Chiplet Revolution: When Monolithic Dies Hit Limits
 
 A monolithic SoC packs everything on one die. As models grow larger and requirements diverge (a phone needs a modem; a server doesn't), the monolithic approach runs into two hard limits:
@@ -292,10 +318,10 @@ A 1000 mm² die would yield ~37%. You throw away more than half your wafer. The 
     <div class="compare-title">Chiplet (disaggregated)</div>
     <ul>
       <li>Compute die on latest node (5 nm / 3 nm)</li>
-      <li>IO/analog die on mature node (28 nm — cheaper, better yield)</li>
+      <li>I/O and analog die on an older, cheaper node (AMD's EPYC I/O dies moved from 14 nm to 6 nm)</li>
       <li>HBM stacks on interposer for high bandwidth</li>
       <li>Each chiplet independently tested before assembly</li>
-      <li>Examples: AMD EPYC Genoa, Intel Ponte Vecchio, Nvidia H100 (die + HBM)</li>
+      <li>Examples: AMD EPYC and MI300X, Intel Xeon 6 and Ponte Vecchio, NVIDIA B200 (two compute dies + HBM)</li>
     </ul>
   </div>
 </div>
@@ -305,8 +331,8 @@ A 1000 mm² die would yield ~37%. You throw away more than half your wafer. The 
 
 The key enabler for chiplets is the **die-to-die interface**. Historically each vendor used proprietary links (Apple UltraFusion, AMD Infinity Fabric, Intel EMIB). In 2022, the industry coalesced around **UCIe (Universal Chiplet Interconnect Express)** — an open standard for die-to-die connectivity:
 
-- **Standard package (2D)**: up to 16 GB/s/mm bandwidth density
-- **Advanced package (2.5D interposer)**: up to 1 TB/s/mm bandwidth density
+- **Standard package (2D, organic substrate)**: roughly 28–224 GB/s per mm of die edge (UCIe 1.0, 4–32 GT/s)
+- **Advanced package (2.5D interposer or bridge)**: roughly 165–1,300 GB/s per mm of die edge; UCIe 2.0 (2024) adds a 3D hybrid-bonded mode and UCIe 3.0 (2025) raises signalling to 48–64 GT/s
 - **Protocol layer**: runs PCIe or CXL over the physical link for software compatibility
 
 UCIe means a CPU chiplet from one vendor can be paired with an NPU chiplet from another vendor on a shared interposer — a "Lego of silicon." For AI hardware, this enables mixing-and-matching: compute chiplets optimized for matmul, memory chiplets optimized for bandwidth, I/O chiplets optimized for connectivity, all on one package that the OS sees as a single SoC. See [Appendix E](./appendix_e_packaging.md) for packaging details.
@@ -326,7 +352,7 @@ The **GH200 Grace Hopper Superchip** combines:
 
 The NVLink-C2C link is **7× wider than PCIe Gen5** and is **cache-coherent** — the CPU and GPU share the same coherency domain, so the GPU can directly access CPU LPDDR (and vice versa) without copies. This is the datacenter equivalent of a phone SoC's unified memory, applied to a 700 W system.
 
-**GB200 (Blackwell)** extends this further: two B200 GPU dies + one Grace CPU on one board, with 1.8 TB of total memory visible as one pool.
+**GB200 (Blackwell)** extends this further: one Grace CPU and two B200 GPUs per superchip, with ~384 GB of HBM3e plus 480 GB of LPDDR5X (~860 GB) addressable coherently. The **GB300** (2025) and **Vera Rubin** (2026, 88-core Vera CPU + two Rubin GPUs) superchips follow the same pattern.
 
 ### AMD MI300A APU
 
@@ -337,12 +363,12 @@ AMD's **MI300A** (Accelerated Processing Unit, 2023) is explicitly a datacenter 
 - All connected on a **silicon interposer** (2.5D packaging)
 - Unified memory: CPU and GPU share the same HBM3 pool — no copies, no PCIe
 
-The MI300A delivers **~383 TFLOPS** FP16 (GPU compute only) at 750 W, with the CPU and GPU colocated and sharing 5.3 TB/s of HBM3 bandwidth. For LLM inference, the unified memory eliminates the CPU→GPU weight-copy latency that plagues discrete GPU systems.
+The MI300A delivers **~980 TFLOPS** of dense FP16 (GPU only) at 550–760 W, with the CPU and GPU colocated and sharing 5.3 TB/s of HBM3 bandwidth. For LLM inference, the unified memory eliminates the CPU→GPU weight-copy latency that plagues discrete GPU systems.
 
 ### The Trend
 
 <div class="diagram">
-<div class="diagram-title">The Datacenter Superchip Trend (2020–2025)</div>
+<div class="diagram-title">The Superchip Trend (2020–2026)</div>
 <div class="timeline">
   <div class="timeline-item">
     <div class="timeline-year">2020</div>
@@ -350,7 +376,7 @@ The MI300A delivers **~383 TFLOPS** FP16 (GPU compute only) at 750 W, with the C
   </div>
   <div class="timeline-item">
     <div class="timeline-year">2022</div>
-    <div class="timeline-desc"><strong>GH100 / GH200</strong> — Grace Hopper: ARM CPU + H100 GPU on one package, NVLink-C2C at 900 GB/s. First datacenter CPU+GPU SoC.</div>
+    <div class="timeline-desc"><strong>GH200</strong> — Grace Hopper (announced 2022, shipping 2023): Arm CPU + H100 GPU on one module, coherent NVLink-C2C at 900 GB/s. The first datacenter CPU+GPU superchip.</div>
   </div>
   <div class="timeline-item">
     <div class="timeline-year">2023</div>
@@ -358,11 +384,15 @@ The MI300A delivers **~383 TFLOPS** FP16 (GPU compute only) at 750 W, with the C
   </div>
   <div class="timeline-item">
     <div class="timeline-year">2024</div>
-    <div class="timeline-desc"><strong>GB200 / NVL72</strong> — NVIDIA: 2×B200 GPU + 1×Grace CPU per "superchip"; 72 such superchips in one NVL72 rack with 1.8 TB pooled memory.</div>
+    <div class="timeline-desc"><strong>GB200 / NVL72</strong> — NVIDIA: 1×Grace + 2×B200 per superchip; 36 superchips (72 GPUs) per NVL72 rack, ~13.4 TB of HBM3e plus ~17 TB of LPDDR5X.</div>
+  </div>
+  <div class="timeline-item">
+    <div class="timeline-year">2025</div>
+    <div class="timeline-desc"><strong>Desktop superchips</strong> — NVIDIA DGX Spark (GB10: Arm CPU + Blackwell GPU, 128 GB unified) and AMD Ryzen AI Max (16 Zen 5 cores, 40-CU GPU, up to 128 GB at ~256 GB/s) bring the unified-memory idea to local LLM workstations.</div>
   </div>
   <div class="timeline-item">
     <div class="timeline-year">2025+</div>
-    <div class="timeline-desc"><strong>Co-packaged optics / CXL pooling</strong> — Memory and compute increasingly disaggregated across optical links; see <a href="./35_where_the_industry_is_headed.md">Ch 35</a> and <a href="./appendix_c_photonics.md">Appendix C</a>.</div>
+    <div class="timeline-desc"><strong>Co-packaged optics / CXL pooling</strong> — Memory and compute increasingly disaggregated across optical links; see <a href="./35_where_the_industry_is_headed.html">Ch 35</a> and <a href="./appendix_c_photonics.html">Appendix C</a>.</div>
   </div>
 </div>
 </div>
@@ -391,10 +421,10 @@ Let's put the SoC concepts together with a concrete example. You run `llama.cpp`
 **Step 2 — Prefill:** The prompt tokens (e.g., 512 tokens) are processed. Each layer requires one forward pass through attention + MLP. Prefill is **compute-bound** (many tokens, large batch dimension). `llama.cpp` runs this primarily on the GPU (Metal shaders), which has higher FLOPS than the ANE for variable-shape attention.
 
 **Step 3 — Decode:** One token per step. Each step reads:
-- All attention weight matrices: $4 \times d_{model}^2 \times 4 \times \text{layers} \approx 4 \times 8192^2 \times 4 \times 80 \approx$ 86 GB of weights (at INT4: ~43 GB)
-- KV-cache for the current context (512+ tokens × 80 layers × 2 × 8192 × 2 bytes ≈ ~5 GB at FP16)
+- All weights, attention and MLP: Llama-3 70B has ~70.6 B parameters; at Q4_K_M's ~4.8 bits per weight that is **~42 GB** per token
+- KV-cache for the current context: 512 tokens × 80 layers × 2 (K, V) × 8 KV heads × 128 dims × 2 bytes ≈ **0.17 GB** in FP16 (grouped-query attention keeps it small; at 32K tokens it grows to ~10.7 GB)
 
-At 800 GB/s, reading 43 GB of weights takes **54 ms** → ceiling of **~18 tokens/second**. In practice, llama.cpp achieves 8–12 tokens/second (overhead from KV-cache, scalar ops, memory allocation).
+At 800 GB/s, reading ~42 GB of weights takes **~53 ms** → a ceiling of **~19 tokens/second**. In practice, llama.cpp achieves roughly 10–14 tokens/second on this setup (KV-cache reads, dequantization, scalar ops and synchronization take the rest).
 
 **Why this matters:** On a discrete RTX 4090 (24 GB VRAM), the 70B INT4 model (40 GB) does **not fit** — you get an OOM error or must shard to CPU RAM and suffer PCIe bottleneck (~20 GB/s). The M2 Ultra runs it natively at 8–12 tok/s with no drama. The unified memory architecture is the enabler.
 
@@ -407,11 +437,11 @@ At 800 GB/s, reading 43 GB of weights takes **54 ms** → ceiling of **~18 token
 <div class="diagram-grid cols-3">
   <div class="diagram-card accent">
     <div class="card-title">Unified Memory Changes Model Size Limits</div>
-    <div class="card-desc">On discrete GPU: model must fit in VRAM (8–80 GB). On Apple Silicon or MI300A: model can use all system RAM (up to 192 GB or 128 GB HBM). Quantization determines which models fit (Ch 25).</div>
+    <div class="card-desc">On a discrete GPU the model must fit in VRAM (24–288 GB per GPU). On Apple Silicon, DGX Spark, Ryzen AI Max or MI300A it can use the whole unified pool (128–512 GB). Quantization decides which models fit (Ch 25).</div>
   </div>
   <div class="diagram-card green">
     <div class="card-title">Bandwidth is the Decode Bottleneck</div>
-    <div class="card-desc">With unified memory and small batch decode, tok/s ≈ bandwidth / model_bytes. Quantization to INT4 gives ~4× speedup. Doubling RAM bandwidth (M3→M4 Max) gives ~1.4× speedup.</div>
+    <div class="card-desc">With unified memory and small-batch decode, tok/s ≈ bandwidth / model_bytes. INT4 gives ~4× over BF16. Going from M3 Max (400 GB/s) to M4 Max (546 GB/s) gives ~1.35× faster decode.</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Know Which Processor Runs Your Op</div>
@@ -423,7 +453,7 @@ At 800 GB/s, reading 43 GB of weights takes **54 ms** → ceiling of **~18 token
   </div>
   <div class="diagram-card orange">
     <div class="card-title">Chiplets Incoming for Edge</div>
-    <div class="card-desc">UCIe-based chiplet SoCs will let edge devices mix compute chiplets. Future phones may have a swappable NPU chiplet. Design your deployment stack to abstract the compute substrate.</div>
+    <div class="card-desc">Chiplets are spreading from servers to client chips (Intel Core Ultra tiles, AMD Ryzen CCDs), and UCIe makes multi-vendor packages possible. Expect more mix-and-match accelerators; keep your deployment stack independent of the compute substrate.</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">Datacenter Superchips Unify Memory</div>
@@ -438,14 +468,47 @@ At 800 GB/s, reading 43 GB of weights takes **54 ms** → ceiling of **~18 token
 
 - An **SoC** integrates CPU, GPU, NPU, DSP, ISP, memory controller, video codec, and I/O into one die or package, connected by an on-chip **NoC fabric** — eliminating the PCIe/board-level bottlenecks of discrete systems.
 - The defining feature for ML is **unified/shared memory**: all processors address the same physical DRAM through IOMMUs, enabling zero-copy tensor passing between ISP → NPU → GPU → CPU.
-- **Unified memory removes the VRAM limit**: a 70B INT4 model that cannot fit on a 24 GB GPU VRAM runs natively on a Mac with 128 GB unified memory, at bandwith-limited speeds (~8–18 tok/s depending on generation).
+- **Unified memory removes the VRAM limit**: a 70B INT4 model that cannot fit in a 24–32 GB consumer GPU runs on a Mac or workstation with 128 GB or more of unified memory, at bandwidth-limited speeds (~10–20 tok/s depending on the chip).
 - **Apple M-series memory bandwidth** — not TOPS — is the binding constraint for LLM decode; INT4 quantization is ~4× more effective than compute optimization for improving tokens/second on these chips.
 - **Chiplets** solve monolithic die limits (reticle ~858 mm², yield degradation): decompose the SoC into smaller dies on different process nodes, assembled on an interposer. **UCIe** is the open standard for chiplet-to-chiplet interconnects.
 - The **datacenter superchip trend** (Grace Hopper, GB200, MI300A) brings SoC-style unified memory to server hardware — CPU and GPU share the same HBM pool with cache-coherent links, removing the copy bottleneck for large-model inference.
 - Mobile SoC ML runtimes (**Core ML**, **QNN**) automatically partition neural networks across NPU/GPU/CPU; profiling which ops fall back to CPU is essential for achieving peak mobile inference performance.
 
+## Check Yourself
+
+<details class="check">
+<summary>Estimate decode tokens/s for an 8B model in 4-bit on an M4 Pro (273 GB/s).</summary>
+<p>~8 × 10⁹ × 0.5 B ≈ 4 GB plus ~10 % overhead ≈ 4.4 GB per token; 273 / 4.4 ≈ 62 tokens/s ceiling, perhaps 40–50 in practice.</p>
+</details>
+
+<details class="check">
+<summary>Why does a 1,000 mm² monolithic die yield so much worse than four 250 mm² chiplets at the same defect density?</summary>
+<p>Yield falls exponentially with area: at D₀ = 0.1/cm², e^(−1.0) ≈ 37 % for one big die, but each 250 mm² chiplet yields e^(−0.25) ≈ 78 %, and chiplets are tested before assembly so bad ones are discarded individually.</p>
+</details>
+
+<details class="check">
+<summary>What does NVLink-C2C give a Grace Hopper system that PCIe does not?</summary>
+<p>About 7× the bandwidth of PCIe 5.0 x16 (900 GB/s total) and cache coherence, so the GPU can directly read and cache the CPU's LPDDR5X (and vice versa) without explicit copies.</p>
+</details>
+
+<details class="check">
+<summary>Why does unified memory not make an SoC faster than a discrete GPU for decode?</summary>
+<p>It removes copies and raises capacity, but decode speed is set by memory bandwidth, and LPDDR5X pools (120–820 GB/s) are 4–60× slower than HBM on datacenter GPUs (3.35–8 TB/s).</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Apple M-series product specifications | Apple | [support.apple.com/en-us/docs/mac](https://support.apple.com/en-us/docs/mac) | Memory bandwidth and capacity per chip |
+| UCIe 1.0 / 2.0 / 3.0 specifications | UCIe Consortium | [uciexpress.org/specifications](https://www.uciexpress.org/specifications) | Die-to-die bandwidth density and 3D mode |
+| NVIDIA Grace Hopper Superchip Architecture | NVIDIA, 2023 | [resources.nvidia.com/en-us-grace-cpu/nvidia-g…](https://resources.nvidia.com/en-us-grace-cpu/nvidia-grace-hopper) | NVLink-C2C coherent CPU–GPU memory |
+| AMD Instinct MI300A APU | AMD | [amd.com/en/products/accelerators/instinct/mi3…](https://www.amd.com/en/products/accelerators/instinct/mi300/mi300a.html) | CPU + GPU chiplets sharing 128 GB HBM3 |
+| NVIDIA GB200 NVL72 | NVIDIA | [nvidia.com/en-us/data-center/gb200-nvl72](https://www.nvidia.com/en-us/data-center/gb200-nvl72/) | Rack configuration and memory totals |
+| llama.cpp performance discussions (Apple Silicon) | ggml-org | [github.com/ggml-org/llama.cpp/discussions/4167](https://github.com/ggml-org/llama.cpp/discussions/4167) | Measured tokens/s on M-series chips |
+
 ---
 
-*Next: [Chapter 23 — Number Formats Deep Dive](./23_number_formats_deep_dive.md), where we examine exactly how FP32, BF16, FP8, INT8, FP4, and microscaling formats are represented in bits — and how those bit layouts reshape the silicon that computes with them.*
+**Next:** [Chapter 23 — Number Formats Deep Dive](./23_number_formats_deep_dive.md) — We examine exactly how FP32, BF16, FP8, INT8, FP4, and microscaling formats are represented in bits — and how those bit layouts reshape the silicon that computes with them.
 
 [← Back to Table of Contents](./README.md)

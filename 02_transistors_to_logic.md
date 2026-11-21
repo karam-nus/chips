@@ -81,7 +81,7 @@ NAND is the natural primitive of CMOS because the PMOS pull-up network places tr
 | 1 | 0 | 1 |
 | 1 | 1 | 0 |
 
-**NAND is universal:** you can build NOT, AND, OR, NOR, and any other gate from NAND gates alone. In practice, CMOS standard-cell libraries (the building blocks EDA tools use) derive almost everything from NAND-based logic because NAND has the best transistor count / drive strength ratio.
+**NAND is universal:** you can build NOT, AND, OR, NOR, and any other gate from NAND gates alone. In practice, the standard-cell libraries EDA tools build from contain hundreds of cells (NAND, NOR, AND-OR-INVERT, multiplexers, flip-flops, each in several drive strengths), but inverting gates like NAND dominate because they need the fewest transistors for a given speed.
 
 ### NOR Gate: 4 Transistors
 
@@ -254,7 +254,7 @@ print(f"13 + 11 = {bits_to_int(result)}")   # 24 ✓
 
 The ripple-carry bottleneck inspired **carry-lookahead**: pre-compute whether each bit position will *generate* ($G_i = A_i \cdot B_i$) or *propagate* ($P_i = A_i \oplus B_i$) a carry, then compute all carries in parallel using 2-level logic. This reduces delay from $O(N)$ to $O(\log N)$, at the cost of more transistors.
 
-Modern chips use 64-bit integer adders with carry-lookahead or prefix-tree topologies (Kogge-Stone, Brent-Kung) achieving full 64-bit addition in ~4–6 gate delays — roughly **0.5–1 ns** at a 3 GHz clock.
+Modern chips use 64-bit integer adders with carry-lookahead or parallel-prefix topologies (Kogge-Stone, Brent-Kung, Han-Carlson) that resolve all 64 carries in about log₂64 = 6 prefix levels. The whole adder settles in roughly **100 ps** at a 5 nm-class node, which is why a 5 GHz CPU core can feed one add's result into the next in a single 200 ps cycle.
 
 ---
 
@@ -362,15 +362,17 @@ At each rising edge, every flip-flop in the chip captures its input and updates 
 
 ### Propagation Delay and the Critical Path
 
-Every gate takes a finite time to produce its correct output after inputs change — its **propagation delay** ($t_{pd}$). Typical values at a modern 5 nm node:
+Every gate takes a finite time to produce its correct output after inputs change — its **propagation delay** ($t_{pd}$). Order-of-magnitude values at a 5 nm-class node (they vary with load, supply voltage, temperature and cell library):
 
 | Gate type | Propagation delay |
 |-----------|-------------------|
-| Inverter | ~20–40 ps |
-| 2-input NAND/NOR | ~30–60 ps |
-| Full-adder (1 bit) | ~80–120 ps |
-| 64-bit adder (CLA) | ~300–500 ps |
-| 64-bit multiplier | ~800–1500 ps |
+| Inverter driving four copies of itself (the "FO4" yardstick) | ~5–10 ps |
+| 2-input NAND/NOR | ~8–15 ps |
+| Full-adder (1 bit) | ~25–40 ps |
+| 64-bit parallel-prefix adder | ~80–150 ps |
+| 64-bit integer multiplier | ~400–600 ps, so CPUs pipeline it over 3–4 cycles |
+
+Designers often count delay in **FO4s**: a high-frequency CPU pipeline stage is roughly 15–20 FO4 deep, which is why clock rates top out around 5–6 GHz.
 
 The **critical path** is the longest chain of gate delays between any two flip-flops. This path determines the minimum clock period — you cannot run the clock faster than the critical path allows, or the flip-flop captures the wrong (still-settling) value.
 
@@ -378,7 +380,7 @@ $$f_{\text{max}} = \frac{1}{t_{\text{critical path}} + t_{\text{setup}} + t_{\te
 
 A 3 GHz chip has a clock period of 333 ps. If the critical path is 280 ps and setup + skew consume 40 ps, there is 13 ps of slack. This is why **timing closure** — ensuring every critical path is short enough — is one of the central challenges in chip design ([Chapter 31](./31_chip_design_flow.md)).
 
-> Reducing clock frequency (underclocking) allows longer critical paths, which in turn allows the chip to run at lower voltage (since slower, more reliable switching tolerates noisier signals). This is the basis of DVFS (Dynamic Voltage-Frequency Scaling) — a technique used by every modern inference accelerator to hit the right power/performance point.
+> Lowering the supply voltage makes every gate slower, so the critical path gets longer and the clock must come down with it. In exchange, switching energy falls with $V^2$. This is the basis of DVFS (Dynamic Voltage-Frequency Scaling) — a technique used by every modern inference accelerator to hit the right power/performance point.
 
 ---
 
@@ -406,7 +408,7 @@ def multiply(a: int, b: int, width: int = 8) -> int:
 assert multiply(13, 11) == 143   # 13 × 11 = 143 ✓
 ```
 
-Hardware multipliers are optimized with **Booth encoding** (halving the number of partial products), **Wallace tree reduction** (summing partial products with carry-save adders in a tree rather than ripple chain), and a final fast adder. An 8-bit × 8-bit multiplier typically consists of ~200–300 transistors at the gate level and has a delay of about 3–5 ns at older nodes, or under 1 ns at modern nodes.
+Hardware multipliers are optimized with **Booth encoding** (halving the number of partial products), **Wallace tree reduction** (summing partial products with carry-save adders in a tree rather than ripple chain), and a final fast adder. A straightforward 8-bit × 8-bit array multiplier needs 64 AND gates for the partial products and about 56 full-adders to sum them, roughly **2,000–3,000 transistors**, and settles in well under 100 ps at a modern node.
 
 ### The MAC Unit: Multiply Then Accumulate
 
@@ -442,9 +444,11 @@ print(dot_product(a, b))   # 1×5 + 2×6 + 3×7 + 4×8 = 70 ✓
 </div>
 </div>
 
-An NVIDIA H100 **tensor core** can compute a 4×4 × 4×4 matrix multiplication (= 64 MACs) in one clock cycle. The H100 die has ~896 tensor cores per chip, distributed across 132 Streaming Multiprocessors (SMs). At 1.98 GHz boost clock, that is:
+The first Tensor Core (Volta, 2017) performed a 4×4×4 matrix multiply-accumulate, 64 FMAs, per clock. Each generation widened it: an H100 SXM has **528 Tensor Cores** (4 in each of 132 Streaming Multiprocessors), and each one performs **512 dense FP16/BF16 FMAs per clock**. At the 1.83 GHz clock NVIDIA uses for its throughput figures:
 
-$$896 \text{ TCs} \times 64 \text{ MACs/TC/cycle} \times 2 \text{ ops/MAC} \times 1.98 \text{ GHz} \approx 226 \text{ TFLOPS (FP16)}$$
+$$528 \text{ TCs} \times 512 \text{ FMA/TC/cycle} \times 2 \text{ FLOP/FMA} \times 1.83 \text{ GHz} \approx 989 \text{ TFLOPS (dense BF16)}$$
+
+That matches NVIDIA's datasheet number, and the FP8 rate (1,979 TFLOPS) is exactly twice it, because an 8-bit multiplier is a quarter of the area of a 16-bit one (see the bars below).
 
 This headline number is just thousands of the full-adder circuits you just built, running at GHz speeds.
 
@@ -521,7 +525,7 @@ Every matrix multiplication and convolution in your model ultimately decomposes 
 <div class="diagram-grid cols-3">
   <div class="diagram-card accent">
     <div class="card-title">Precision = Transistor Count</div>
-    <div class="card-desc">A 16-bit multiplier needs ~4× more transistors than an 8-bit one. Halving precision roughly quadruples the MACs you can fit per mm². This is the physical reason INT8 gives ~2–4× throughput vs FP32 on tensor cores.</div>
+    <div class="card-desc">A 16-bit multiplier needs ~4× more transistors than an 8-bit one. Halving precision roughly quadruples the MACs you can fit per mm². On H100 this shows up as INT8/FP8 at 2× the BF16 tensor rate and 4× TF32.</div>
   </div>
   <div class="diagram-card green">
     <div class="card-title">Critical Path = Clock Limit</div>
@@ -529,7 +533,7 @@ Every matrix multiplication and convolution in your model ultimately decomposes 
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Accumulator Width Matters</div>
-    <div class="card-desc">Even when inputs are INT8, the accumulator must be wider (INT32) to avoid overflow across a long dot product. Hardware that accumulates in INT16 introduces quantization error — a real consideration when tuning INT8 quantization.</div>
+    <div class="card-desc">Even when inputs are INT8, the accumulator must be wider (INT32) to avoid overflow across a long dot product. An INT16 accumulator would overflow after a handful of products, so INT8 tensor cores accumulate in INT32, and FP8 ones in FP32 (or slightly narrower internally).</div>
   </div>
   <div class="diagram-card purple">
     <div class="card-title">Tensor Core = MAC Array</div>
@@ -537,13 +541,29 @@ Every matrix multiplication and convolution in your model ultimately decomposes 
   </div>
   <div class="diagram-card orange">
     <div class="card-title">Fused Multiply-Add (FMA)</div>
-    <div class="card-desc">Modern FPUs compute a×b+c with one rounding step (not two). torch.addmm, cuBLAS GEMM, and every convolution rely on FMA — it's why fused ops are always more accurate than separate multiply then add.</div>
+    <div class="card-desc">Modern FPUs compute a×b+c with one rounding step (not two). cuBLAS GEMMs and convolutions are built from FMAs, which is one reason fused kernels are usually slightly more accurate than separate multiply-then-add.</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">Sparsity Skips MACs</div>
     <div class="card-desc">If a weight is zero, its MAC contributes nothing. 2:4 structured sparsity (Ch 26) physically skips 50% of the multipliers in the tensor core, halving compute. The hardware "knows" zeros are zero — it doesn't just compute a zero product.</div>
   </div>
 </div>
+</div>
+
+<div class="specbars">
+<div class="sb-title">First-order multiplier area ∝ (significand bits)²</div>
+<div class="sb-row"><span class="sb-name">FP32 (24-bit significand)</span><span class="sb-track"><i class="k5" style="--v:1"></i></span><span class="sb-val">576 · 9.0×</span></div>
+<div class="sb-row"><span class="sb-name">FP16 / TF32 (11)</span><span class="sb-track"><i class="k2" style="--v:0.21"></i></span><span class="sb-val">121 · 1.9×</span></div>
+<div class="sb-row"><span class="sb-name">BF16 (8)</span><span class="sb-track"><i style="--v:0.111"></i></span><span class="sb-val">64 · 1.0×</span></div>
+<div class="sb-row"><span class="sb-name">INT8 (8)</span><span class="sb-track"><i style="--v:0.111"></i></span><span class="sb-val">64 · 1.0×</span></div>
+<div class="sb-row"><span class="sb-name">FP8 E4M3 (4)</span><span class="sb-track"><i class="k4" style="--v:0.028"></i></span><span class="sb-val">16 · 0.25×</span></div>
+<div class="sb-row"><span class="sb-name">FP4 E2M1 (2)</span><span class="sb-track"><i class="k4" style="--v:0.007"></i></span><span class="sb-val">4 · 0.06×</span></div>
+<div class="sb-note">An N×N-bit array multiplier has N² partial-product bits, so area and energy grow with the square of the significand width (implicit leading 1 included), relative to INT8. Exponent adders, alignment shifters and accumulators add a smaller, roughly linear cost; <a href="./24_datatypes_and_silicon.html">Chapter 24</a> follows this through to real tensor cores.</div>
+</div>
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>BF16 and INT8 need multipliers of about the same size, yet INT8 tensor throughput is usually quoted at twice BF16's. Where does the other half of the BF16 cost go? (Hint: think about what has to happen to the exponents before two floating-point products can be added.)</p>
 </div>
 
 ---
@@ -554,12 +574,50 @@ Every matrix multiplication and convolution in your model ultimately decomposes 
 - A **full-adder** from XOR and AND gates chains into a **ripple-carry adder**; carry-lookahead cuts delay from O(N) to O(log N).
 - The **ALU** composes adders and logic units, selected by a MUX; subtraction is just two's-complement addition.
 - **Flip-flops** (D-type, edge-triggered) are the storage cells; registers are arrays of flip-flops. The clock synchronises all state updates.
-- The **critical path** through combinational logic sets the maximum clock frequency ($f_{max} = 1/t_{critical}$).
+- The **critical path** through combinational logic sets the maximum clock frequency ($f_{max} = 1/(t_{critical} + t_{setup} + t_{skew})$); a 64-bit adder settles in ~100 ps at a 5 nm-class node.
 - A **Multiply-Accumulate (MAC) unit** — multiplier + accumulator — is the atom of every matmul and convolution.
 - A tensor core is thousands of MACs; INT8 fits more MACs per mm² than FP32, directly explaining low-precision speedups.
 
+## Check Yourself
+
+<details class="check">
+<summary>Why do CMOS designers prefer NAND to NOR as a building block?</summary>
+<p>In NAND the slow PMOS transistors sit in parallel and the fast NMOS in series; NOR is the reverse. Holes are about 3× less mobile than electrons in silicon, so stacking PMOS in series (NOR) makes the pull-up much slower or forces much wider transistors.</p>
+</details>
+
+<details class="check">
+<summary>A 3 GHz design has a 360 ps critical path. Name three ways to close timing.</summary>
+<p>The period is 333 ps, so the path is ~30 ps too long. Options: split the logic across two pipeline stages (or retime registers into it); swap in faster cells or a faster adder topology; raise the supply voltage (faster gates, more power); or accept a lower clock, about 2.7 GHz.</p>
+</details>
+
+<details class="check">
+<summary>Why does an INT8 dot product of length 4096 need a 32-bit accumulator?</summary>
+<p>Each product can be as large as 127 × 127 = 16,129, and 4096 of them can sum to about 6.6 × 10⁷, which needs 27 bits. INT16 tops out at 32,767 and would overflow after three worst-case products.</p>
+</details>
+
+<details class="check">
+<summary>Using the first-order N² rule, how much smaller is an FP8 E4M3 multiplier than a BF16 one?</summary>
+<p>BF16 carries an 8-bit significand (7 stored + the implicit 1), E4M3 a 4-bit one: (8/4)² = 4× smaller. That is why FP8 tensor throughput is 2× BF16 at roughly the same area (the saving is shared with wider accumulation and conversion logic).</p>
+</details>
+
+<details class="check">
+<summary>What does a carry-lookahead or prefix adder trade to beat a ripple-carry adder?</summary>
+<p>Area and wiring. It computes generate and propagate signals for every bit and combines them in a log₂N-deep tree, so delay drops from O(N) to O(log N) at the cost of more gates and longer wires.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| CMOS VLSI Design: A Circuits and Systems Perspective, 4th ed. | N. Weste, D. Harris, 2010 | [pearson.com/en-us/subject-catalog/p/cmos-vlsi…](https://www.pearson.com/en-us/subject-catalog/p/cmos-vlsi-design-a-circuits-and-systems-perspective/P200000003426) | Gate topologies, FO4 delay, adder and multiplier design |
+| Digital Design and Computer Architecture, RISC-V Edition | S. Harris, D. Harris, 2021 | [elsevier.com/books/digital-design-and-compute…](https://www.elsevier.com/books/digital-design-and-computer-architecture-risc-v-edition/harris/978-0-12-820064-3) | Boolean algebra through flip-flops, at the level used here |
+| A Parallel Algorithm for the Efficient Solution of a General Class of Recurrence Equations | P. Kogge, H. Stone, IEEE TC 1973 | [doi.org/10.1109/TC.1973.5009159](https://doi.org/10.1109/TC.1973.5009159) | The parallel-prefix adder |
+| A Suggestion for a Fast Multiplier | C. S. Wallace, IEEE TEC 1964 | [doi.org/10.1109/PGEC.1964.263830](https://doi.org/10.1109/PGEC.1964.263830) | Carry-save reduction trees for partial products |
+| A Signed Binary Multiplication Technique | A. D. Booth, 1951 | [doi.org/10.1093/qjmam/4.2.236](https://doi.org/10.1093/qjmam/4.2.236) | Booth recoding: halving the partial products |
+| NVIDIA H100 Tensor Core GPU Architecture | NVIDIA, 2022 | [resources.nvidia.com/en-us-tensor-core/gtc22-…](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper) | Tensor Core count, per-clock FMA rate, 989 TFLOPS dense BF16 |
+
 ---
 
-*Next: [Chapter 3 — Number Representation](./03_number_representation.md), where we examine the bit patterns that flow through these adders and MACs — from unsigned integers to two's complement, fixed-point, and IEEE-754 floating point.*
+**Next:** [Chapter 3 — Number Representation](./03_number_representation.md) — We examine the bit patterns that flow through these adders and MACs — from unsigned integers to two's complement, fixed-point, and IEEE-754 floating point.
 
 [← Back to Table of Contents](./README.md)
