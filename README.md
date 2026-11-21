@@ -304,9 +304,9 @@ Read Chapters 1 → 35 in order, then the appendices. Each builds on the previou
 
 ### Path D: "I learn by poking at things" (labs first)
 
-1. [Roofline lab](./labs.md#roofline) — move a workload until it crosses the ridge, then read [Chapter 11](./11_memory_wall_and_bandwidth.md)
-2. [Bit explorer](./labs.md#bit-explorer) — flip bits in FP8 and FP4, then read [Chapter 23](./23_number_formats_deep_dive.md)
-3. [Will it fit?](./labs.md#will-it-fit) — size a 70B model's KV cache, then read [Chapter 29](./29_memory_hierarchy_in_action.md)
+1. [Roofline lab](./labs.md#1-roofline) — move a workload until it crosses the ridge, then read [Chapter 11](./11_memory_wall_and_bandwidth.md)
+2. [Bit explorer](./labs.md#2-bit-explorer) — flip bits in FP8 and FP4, then read [Chapter 23](./23_number_formats_deep_dive.md)
+3. [Will it fit?](./labs.md#3-will-it-fit) — size a 70B model's KV cache, then read [Chapter 29](./29_memory_hierarchy_in_action.md)
 4. [Accelerator Atlas](./atlas.md) — compare every chip in the guide, then read [Chapter 34](./34_generational_improvements.md)
 
 ### Path E: "I'm curious how chips are actually built" (4 reads)

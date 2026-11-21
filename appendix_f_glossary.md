@@ -291,6 +291,6 @@ Every acronym, concept, and term that appears across the guide, defined in one p
 
 ---
 
-*Next: [Appendix G — Resources & Further Reading](./appendix_g_resources.md), a curated guide to books, courses, papers, and tools for going deeper.*
+**Next:** [Appendix G — Resources & Further Reading](./appendix_g_resources.md) — A curated guide to books, courses, papers and tools for going deeper.
 
 [← Back to Table of Contents](./README.md)

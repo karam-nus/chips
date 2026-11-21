@@ -223,7 +223,7 @@ Here is the theme that ties Chapters 23 and 24 together. The formats that won we
   </div>
   <div class="diagram-card green">
     <div class="card-title">TF32 (NVIDIA)</div>
-    <div class="card-desc">A *compute mode*, not a storage type: keep FP32's exponent, truncate the mantissa to 10 bits so the tensor-core multiplier is ~5× smaller — a drop-in FP32 speedup.</div>
+    <div class="card-desc">A <em>compute mode</em>, not a storage type: keep FP32's exponent, truncate the mantissa to 10 bits so the tensor-core multiplier is ~5× smaller — a drop-in FP32 speedup.</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">FP8 E4M3 / E5M2 (OCP)</div>
@@ -341,11 +341,11 @@ A single INT8×INT8 product can reach $127 \times 127 = 16{,}129$ — already fa
 <div class="diagram-grid cols-3">
   <div class="diagram-card accent">
     <div class="card-title">Speedups are a square law</div>
-    <div class="card-desc">FP32→FP8 isn't 4× cheaper, it's ~30× cheaper per multiply — because multiplier area ~ mantissa². This is *why* the low-precision payoff is so large, and why FP8/FP4 hardware exists.</div>
+    <div class="card-desc">FP32→FP8 isn't 4× cheaper, it's ~30× cheaper per multiply — because multiplier area ~ mantissa². This is <em>why</em> the low-precision payoff is so large, and why FP8/FP4 hardware exists.</div>
   </div>
   <div class="diagram-card green">
     <div class="card-title">Range is cheap, precision is dear</div>
-    <div class="card-desc">Widening the exponent (range) costs an O(N) adder; widening the mantissa (precision) costs an O(N²) multiplier. This is the hardware reason BF16 (wide exp, narrow mantissa) is both cheap *and* training-friendly.</div>
+    <div class="card-desc">Widening the exponent (range) costs an O(N) adder; widening the mantissa (precision) costs an O(N²) multiplier. This is the hardware reason BF16 (wide exp, narrow mantissa) is both cheap <em>and</em> training-friendly.</div>
   </div>
   <div class="diagram-card orange">
     <div class="card-title">The 2× rule, and its ceiling</div>

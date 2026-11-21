@@ -552,7 +552,7 @@ With the OCP rule the scale is $2^{\lfloor \log_2 5 \rfloor - 2} = 1$, so the ou
   </div>
   <div class="diagram-card purple">
     <div class="card-title">Block scaling unlocks 4-bit</div>
-    <div class="card-desc">Per-tensor scaling dies at 4 bits because outliers steal the range. Microscaling (32- or 16-element blocks + shared scale) is *why* MXFP4/NVFP4 work — and why Blackwell built it into silicon.</div>
+    <div class="card-desc">Per-tensor scaling dies at 4 bits because outliers steal the range. Microscaling (32- or 16-element blocks + shared scale) is <em>why</em> MXFP4/NVFP4 work — and why Blackwell built it into silicon.</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Accumulation is separate</div>
