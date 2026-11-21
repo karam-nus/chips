@@ -22,7 +22,7 @@ From 1965 to ~2005, the semiconductor industry operated under a remarkable combi
 
 Two constraints killed it:
 1. **Dennard scaling collapsed** (~2005): voltage can't drop further without leakage dominance; power density rises; clocks stalled at 3–5 GHz ([Chapter 1](./01_what_is_a_chip.md)).
-2. **Moore's Law is slowing** (~2018–present): transistor density still grows, but at 2nm and below, lithography costs ($200M+ per EUV mask set) and quantum tunneling effects constrain density improvements. Node names are now marketing labels; the real density gain per node generation is ~1.1–1.3× rather than the historical 1.7–2×.
+2. **Moore's Law is slowing** (~2018–present): transistor density still grows, but at 2nm and below, cost (an EUV scanner is ~$200M, a High-NA scanner ~$380M, a leading-edge fab $20B+) and physics (tunneling, contact resistance, variability) constrain each step. Node names are now marketing labels; logic density still improves ~1.15–1.6× per node, but SRAM and analog barely shrink, and cost per transistor has stopped falling.
 
 <div class="diagram">
 <div class="diagram-title">From Easy Scaling to Hard-Won Gains</div>
@@ -67,11 +67,12 @@ The structural advantages are well-established:
 
 The missing piece for heterogeneous chiplet integration has been a **standard die-to-die interface**. AMD's Infinity Fabric and NVIDIA's NVLink-C2C are proprietary. **UCIe** (Universal Chiplet Interconnect Express), announced 2022 with backing from Intel, AMD, ARM, Qualcomm, Samsung, TSMC, and others, defines a standard physical and protocol layer for die-to-die communication:
 
-| UCIe Standard | Bandwidth Density | Distance | Notes |
-|--------------|:----------------:|:--------:|-------|
-| UCIe 1.0 (Advanced packaging) | 28 GB/s/mm | <2 mm | Die-to-die on interposer / bridge |
-| UCIe 1.0 (Standard packaging) | 2 GB/s/mm | <25 mm | PCB-level, lower density |
-| UCIe 2.0 (est. 2025+) | ~112 GB/s/mm | <5 mm | Next-generation; targets HBM-adjacent bandwidth |
+| UCIe version | Data rate | Bandwidth density | Reach | Notes |
+|--------------|:---------:|:----------------:|:--------:|-------|
+| UCIe 1.0/1.1, advanced package | up to 32 GT/s | up to ~1.3 TB/s per mm of die edge | ~2 mm | Silicon interposer or bridge (CoWoS, EMIB) |
+| UCIe 1.0/1.1, standard package | up to 32 GT/s | up to ~224 GB/s per mm of die edge | ~25 mm | Organic substrate, lower cost |
+| UCIe 2.0 (2024) | — | adds UCIe-3D: bandwidth per mm² of face, hybrid bonding at ≤10 µm pitch | vertical | 3D stacking; manageability and test |
+| UCIe 3.0 (2025) | 48 and 64 GT/s | ~2× UCIe 1.x | as above | Higher-speed 2D links |
 
 UCIe standardization enables a **chiplet marketplace**: a company designs a memory controller chiplet, a PCIe chiplet, or an AI accelerator chiplet, and it can be combined with any compatible compute die. This is happening now — Marvell, Broadcom, and AMD have announced UCIe-compatible chiplets for custom AI accelerator programs.
 
@@ -90,7 +91,7 @@ See [Appendix E — Packaging & Integration](./appendix_e_packaging.md) for deep
 <div class="diagram-grid cols-3">
   <div class="diagram-card accent">
     <div class="card-title">CoWoS (Chip-on-Wafer-on-Substrate)</div>
-    <div class="card-desc">TSMC's 2.5D interposer: GPU die + HBM stacks side-by-side on silicon interposer. Enables 5–10 TB/s HBM bandwidth. Used in H100, A100, MI300X. CoWoS-S, CoWoS-R expanding area.</div>
+    <div class="card-desc">TSMC's 2.5D interposer: GPU die + HBM stacks side-by-side on silicon interposer. Enables 3–8 TB/s of HBM bandwidth per package today, ~20 TB/s with HBM4. Used in A100, H100, MI300X; CoWoS-L (silicon bridges in an organic interposer) carries the two-die B200/B300 and Rubin.</div>
   </div>
   <div class="diagram-card blue">
     <div class="card-title">Hybrid Bonding / Cu-Cu Direct Bond</div>
@@ -102,11 +103,11 @@ See [Appendix E — Packaging & Integration](./appendix_e_packaging.md) for deep
   </div>
   <div class="diagram-card purple">
     <div class="card-title">FOVEROS / Embedded Multi-Die</div>
-    <div class="card-desc">Intel's 3D stacking for logic dies. Tiles face-up on a base die connected via hybrid bonding. Enables disaggregated CPU tiles with shared power/IO base. Used in Meteor Lake, Lunar Lake.</div>
+    <div class="card-desc">Intel's 3D stacking for logic dies. Tiles face-up on a base die connected via hybrid bonding. Enables disaggregated CPU tiles with shared power/IO base. Used in Meteor Lake, Lunar Lake and Panther Lake; EMIB bridges connect tiles side by side.</div>
   </div>
   <div class="diagram-card orange">
     <div class="card-title">SoIC (System on Integrated Chips)</div>
-    <div class="card-desc">TSMC's 3D stacking using hybrid bond. SoIC-XS targets < 9 µm bonding pitch. Logic stacked on logic at near-BEOL interconnect density. Prototype GPUs demoed with stacked SRAM on compute die.</div>
+    <div class="card-desc">TSMC's 3D stacking using hybrid bond. SoIC-XS targets < 9 µm bonding pitch. Logic stacked on logic at near-BEOL interconnect density. AMD's MI300 stacks compute dies on I/O dies with it; AMD's X3D CPUs stack cache the same way.</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">Wafer-Level Fan-Out (FOWLP)</div>
@@ -115,54 +116,56 @@ See [Appendix E — Packaging & Integration](./appendix_e_packaging.md) for deep
 </div>
 </div>
 
-The near-term trajectory (2025–2028): CoWoS packages will grow from ~1,200 mm² (H100) to **>2,500 mm²** (multi-reticle interposers) to accommodate more HBM stacks and larger multi-die compute complexes. TSMC's "System on Wafer" (SoW) concepts push this further toward wafer-scale integration for the highest-end systems.
+The near-term trajectory (2025–2028): CoWoS interposers have grown from ~2,500 mm² (H100, about three reticles) to ~3.3 reticles for Blackwell, and TSMC is planning 5.5- and 9-reticle versions to accommodate more HBM stacks and larger multi-die compute complexes. TSMC's "System on Wafer" (SoW) concepts push this further toward wafer-scale integration for the highest-end systems.
 
 ---
 
 ## HBM4 and Memory Beyond
 
-HBM3e (deployed in H200, MI325X, B200) is approaching the bandwidth-density ceiling of the current physical interface. **HBM4**, expected in volume production 2025–2026, represents the most significant HBM architectural change since HBM2:
+HBM3e (deployed in H200, MI325X, B200) is approaching the bandwidth-density ceiling of the current physical interface. **HBM4**, in volume production since early 2026, is the most significant HBM architectural change since HBM2:
 
 | | HBM3e | HBM4 |
 |--|-------|------|
 | Bus width per stack | 1,024 bits | **2,048 bits** |
-| Data rate | 9.6 Gbps/pin | 12–16 Gbps/pin |
-| BW per stack | ~1.2 TB/s | **~3.2–4.0 TB/s** |
-| Stacks per GPU (target) | 8 | 8–12 |
-| Total BW target | ~8–10 TB/s | **~30–40 TB/s** |
-| Capacity per stack | 24–36 GB | 32–64 GB |
+| Channels per stack | 16 | **32** |
+| Data rate | 8–9.6 Gbps/pin | 8 Gbps (JEDEC); ~10–11 shipping |
+| BW per stack | ~1.0–1.2 TB/s | **~2.0–2.8 TB/s** |
+| Stacks per GPU | 8 | 8 (Rubin), 12 (MI455X) |
+| Total BW | ~8 TB/s | **~20 TB/s** |
+| Capacity per stack | 24–36 GB | 36 GB (12-high) → 48 GB (16-high) |
 
-HBM4's doubled bus width requires changes to both the DRAM stack and the logic die interface — it is a co-designed specification, not just a DRAM improvement. NVIDIA's Rubin (2026) and AMD's MI400 are expected to launch with HBM4.
+HBM4's doubled bus width requires changes to both the DRAM stack and the logic die interface — it is a co-designed specification, not just a DRAM improvement. NVIDIA's Rubin and AMD's MI450/MI455X are the first accelerators built on it (2026). For the first time the base die can be made on a logic process (TSMC N12/N3-class), so GPU vendors can place custom logic under the DRAM stack; HBM4E follows in 2027.
 
-Further out: **compute-in-memory DRAM** (Samsung HBM-PIM, SK Hynix AiM) places simple processing elements inside the HBM stack, allowing matrix-vector operations at the memory's bandwidth rather than requiring data to traverse the HBM interface to the GPU's ALUs. Early HBM-PIM products showed 2.5× bandwidth-efficiency gains for transformer attention on certain workloads. Full in-memory compute is discussed in a later section.
+Further out: **compute-in-memory DRAM** (Samsung HBM-PIM, SK Hynix AiM) places simple processing elements inside the HBM stack, allowing matrix-vector operations at the memory's bandwidth rather than requiring data to traverse the HBM interface to the GPU's ALUs. Samsung reported roughly 2× performance and large energy savings for memory-bound kernels in its HBM-PIM trials; none has yet reached a mainstream GPU product. Full in-memory compute is discussed in a later section.
 
 ---
 
 ## CXL Memory Pooling and Disaggregation
 
-**CXL** (Compute Express Link) is a PCIe 5.0-based coherent interconnect protocol that enables **memory disaggregation**: attaching large pools of DRAM (or other memory) to CPUs and GPUs over a standard fabric, with cache-coherent access ([Chapter 12](./12_buses_and_interconnects.md)).
+**CXL** (Compute Express Link) is a coherent interconnect that runs over the PCIe physical layer (PCIe 5 for CXL 1.1/2.0, PCIe 6 for CXL 3.x, PCIe 7 for CXL 4.0 from late 2025) that enables **memory disaggregation**: attaching large pools of DRAM (or other memory) to CPUs and GPUs over a standard fabric, with cache-coherent access ([Chapter 12](./12_buses_and_interconnects.md)).
 
 The core idea is powerful: instead of each GPU having its own fixed HBM allocation, a CXL fabric allows **pooled memory** shared across multiple accelerators on demand. A training job that needs 512 GB of model state can draw from a 2 TB CXL memory pool; an inference job that needs only 48 GB relinquishes the rest. This is the **memory disaggregation** thesis.
 
 <div class="diagram">
 <div class="diagram-title">CXL Memory Disaggregation Architecture</div>
 <div class="flow">
-  <div class="flow-node accent wide">GPU 0 (80 GB HBM) ←CXL 3.0→ GPU 1 (80 GB HBM) ←CXL 3.0→ GPU N</div>
+  <div class="flow-node accent wide">Host CPUs (and CXL-capable accelerators) — each with local DDR5 / HBM</div>
   <div class="flow-arrow accent"></div>
-  <div class="flow-node green wide">CXL Switch / Fabric (CXL 3.0: up to 68 GB/s per port)</div>
+  <div class="flow-node green wide">CXL switch / fabric (x16 port: ~64 GB/s per direction on PCIe 5, ~128 GB/s on PCIe 6)</div>
   <div class="flow-arrow accent"></div>
-  <div class="flow-node blue wide">CXL Memory Expander — 512 GB–2 TB DDR5/LPDDR5 modules (Samsung CMM-H, SK Hynix eMPM)</div>
+  <div class="flow-node blue wide">CXL memory expanders and pooled appliances — 128 GB–2 TB of DDR5 per device (Samsung CMM-D, SK hynix CMM-DDR5, Micron CZ120)</div>
 </div>
 </div>
 
 **CXL protocol versions:**
-- **CXL 1.0/1.1**: type-2 coherent access (GPU to host memory); PCIe 5.0 physical
+- **CXL 1.0/1.1**: defines Type 1 (cache-coherent accelerators), Type 2 (accelerators with their own memory) and Type 3 (memory expanders); PCIe 5.0 physical
 - **CXL 2.0**: memory pooling — multiple hosts to one memory pool; switch support
-- **CXL 3.0**: fabric-level multi-host memory sharing; back-to-back topology; PCIe 6.0 physical
+- **CXL 3.x**: fabric-level multi-host memory sharing, multi-level switching; PCIe 6.0 physical
+- **CXL 4.0** (Nov 2025): PCIe 7.0 signalling (128 GT/s) and bundled ports for more bandwidth per device
 
-Practical CXL memory pools (Samsung CMM-H with HBM, SK Hynix eMPM) entered production in 2024 for hyperscaler preview. The bandwidth of CXL (~68 GB/s at PCIe 5.0 ×16) is roughly 50–100× lower than HBM — so CXL memory is not a replacement for HBM's bandwidth but a **capacity expansion** for data that doesn't need peak bandwidth (model weights that are loaded once per inference request, KV caches for long-context, activation buffers).
+CXL Type 3 memory expanders from Samsung, SK hynix and Micron have shipped since 2024, and Intel Xeon 6 and AMD EPYC 9005 servers support them. The bandwidth of a CXL link (~64 GB/s per direction at PCIe 5.0 ×16) is roughly 100× lower than a modern GPU's HBM, so CXL memory is not a replacement for HBM bandwidth but a **capacity tier** for data that is touched rarely: idle sessions' KV caches, prefix caches, embedding tables, checkpoints and optimizer state being offloaded.
 
-For ML inference: CXL enables **economically serving 405B+ parameter models** on clusters that previously required all-HBM nodes, by placing model weights in CXL memory and KV caches in HBM. This changes the cost curve for long-context inference significantly.
+For ML inference the practical win is **KV-cache tiering**: keep active sequences' KV in HBM, park paused conversations and shared prefixes in host or CXL memory, and page them back in a few milliseconds instead of recomputing the prefill. Model weights do *not* belong there: decode reads every weight every step, and at CXL bandwidth a 405B model would generate a token every few seconds. NVIDIA's own answer to the same need is a different link: Grace's NVLink-C2C reaches CPU memory at 900 GB/s.
 
 ---
 
@@ -197,11 +200,12 @@ The challenge is the last millimeter: electrical I/O remains necessary at the ch
 </div>
 
 See [Appendix C — Photonics](./appendix_c_photonics.md) for silicon photonics fundamentals. CPO deployment timeline:
-- **Switch ASICs**: Broadcom Tomahawk 5, Cisco Silicon One already deploying CPO in hyperscaler fabrics (2024–2025)
-- **GPU interconnect**: NVIDIA Spectrum-X networking with optical-native design; longer timeline for GPU-to-GPU optical NVLink
+- **Switch ASICs (shipping)**: Broadcom's Bailly (51.2 Tb/s Tomahawk 5 CPO) is in volume and its 102.4 Tb/s Tomahawk 6 CPO is sampling; NVIDIA's Quantum-X Photonics InfiniBand and Spectrum-X Photonics Ethernet switches (built with TSMC's COUPE optical engines) ship from 2026, with NVIDIA claiming ~3.5× better power efficiency than pluggable optics
+- **Chip I/O**: optical chiplets (Ayar Labs TeraPHY) and photonic interposers (Lightmatter Passage) bring fibre to the package edge of compute dies; still pre-volume
+- **GPU-to-GPU scale-up**: NVLink stays copper inside the rack through Rubin Ultra; optics first replaces the scale-out network
 - **Compute tiles**: fully optical compute (arithmetic in the optical domain) is 10–15+ years away from practicality at scale
 
-For ML practitioners: CPO primarily matters for **multi-rack and inter-datacenter training clusters**. The bandwidth wall between nodes (typically 200–400 Gb/s InfiniBand per GPU vs 900+ GB/s NVLink within a node) is the binding constraint for distributed training at scale. CPO can increase inter-node bandwidth by 5–10× while reducing power — which would dramatically change the economics of pipeline parallelism vs tensor parallelism ([Chapter 28](./28_multi_gpu_and_distributed_training.md)).
+For ML practitioners: CPO primarily matters for **multi-rack and inter-datacenter training clusters**. The bandwidth wall between nodes (typically 400–800 Gb/s, i.e. 50–100 GB/s, of InfiniBand or Ethernet per GPU vs 900–1,800 GB/s of NVLink within a node) is the binding constraint for distributed training at scale. CPO can increase inter-node bandwidth by 5–10× while reducing power — which would dramatically change the economics of pipeline parallelism vs tensor parallelism ([Chapter 28](./28_multi_gpu_and_distributed_training.md)).
 
 ---
 
@@ -214,7 +218,7 @@ Every compute device described in this guide is a **von Neumann machine**: compu
 **Processing-in-Memory (PIM)** or **compute-in-memory (CIM)** places simple arithmetic units directly inside or adjacent to the memory array, eliminating the bulk of data movement:
 
 - **Near-memory compute (NMC)**: logic die stacked on or beside DRAM, sharing the DRAM interface. Samsung HBM-PIM (2021) placed simple SIMD cores inside each HBM stack, demonstrating ~1.4× bandwidth efficiency improvement for GEMV operations. SK Hynix AiM (Accelerator-in-Memory) followed similar architecture.
-- **In-SRAM compute**: performing analog dot-product operations using the SRAM bitcell's discharge current. Multiple startups (Mythic, Gyrfalcon, Hailo) have deployed 8-bit MAC operations in analog SRAM. The challenge: analog is inherently noisy, making precision beyond ~6 bits difficult; writes wear out SRAM faster than reads; and area efficiency depends heavily on workload regularity.
+- **In-memory compute**: performing dot products inside the memory array. Mythic computes in analog inside flash cells; EnCharge AI uses charge on capacitors next to SRAM; d-Matrix's Corsair uses *digital* in-SRAM compute for data-center inference; IBM Research demonstrated a 14 nm analog phase-change chip with 35 million weights (Nature, 2023). The challenge: analog is inherently noisy, making precision beyond ~6 bits difficult; writes wear out SRAM faster than reads; and area efficiency depends heavily on workload regularity.
 - **Resistive memory (ReRAM/PCM/MRAM)**: memristive devices can store multi-bit weights in their resistance state and perform analog MAC by Kirchhoff's current law. A weight matrix can be "programmed" into the conductance of a crossbar array and a dot product performed in one physical step. Analog precision (~4–6 bits effective), endurance, and write speed remain engineering challenges, but companies like Mythic (analog flash), Weebit Nano (ReRAM), and various academic groups have demonstrated inference-capable prototypes.
 
 <div class="diagram">
@@ -242,12 +246,12 @@ Every compute device described in this guide is a **von Neumann machine**: compu
 |--|:---------:|:--------------:|
 | Die area | ~815 mm² | ~46,225 mm² |
 | Transistors | ~80 B | ~4 trillion |
-| SRAM on-chip | ~50 MB | ~900 GB |
+| SRAM on-chip | ~50 MB L2 (+ ~30 MB SMEM/L1) | ~44 GB |
 | Core count | 132 SMs | 900,000 cores |
-| Memory BW (on-chip SRAM) | ~33 TB/s (L2) | ~21 PB/s (all SRAM) |
-| Peak FP16 TFLOP/s | 989 | ~125,000 (theoretical) |
+| Memory BW | 3.35 TB/s HBM; ~30 TB/s aggregate SMEM/L1 | ~21 PB/s (all SRAM) |
+| Peak FP16 TFLOP/s | 989 (dense) | ~125,000 (vendor peak, with sparsity) |
 
-The key insight is **on-chip SRAM bandwidth**: with ~900 GB of SRAM directly on-die, a Cerebras CS-3 can hold the weights of an entire 70B-parameter model (at appropriate precision) in SRAM — which delivers ~21 PB/s of bandwidth, ~2,600× greater than H100 HBM bandwidth. For models where the entire activation and weight set fits in SRAM, the memory wall essentially disappears.
+The key insight is **on-chip SRAM bandwidth**: 44 GB of SRAM spread across the wafer delivers ~21 PB/s, about 6,000× an H100's HBM bandwidth. 44 GB holds ~20B parameters at FP16, so Cerebras serves larger models by pipelining layers across several wafers (and, for training, streams weights in from external MemoryX servers). For whatever fits in SRAM, the memory wall essentially disappears, which is why Cerebras and Groq lead single-stream token rates. Cerebras went public in May 2026.
 
 The tradeoffs: extreme NRE cost (a wafer is ~$20,000+ to manufacture, most of it wasted on defects without the redundancy/yield tricks Cerebras employs), limited supply, and a software stack that requires rewriting models in Cerebras's custom toolchain. For training large language models, Cerebras reports significant speed advantages per system, but total cost of ownership versus a NVIDIA cluster depends strongly on workload.
 
@@ -273,7 +277,7 @@ True **optical computing** — performing matrix multiplication in the optical d
 - Matrix-vector products in $O(1)$ time per optical pass
 - Near-zero compute energy (photons don't dissipate energy in transit)
 
-Companies pursuing this include Lightmatter (Passage photonic interconnect + Envise computing platform), Luminous Computing (acquired), and academic groups at MIT, Stanford, and Oxford.
+Companies have pursued this, but the most prominent, Lightmatter, has shifted its emphasis from optical compute (Envise) to optical *interconnect* (Passage), which says a lot about where the near-term value is. Academic groups at MIT, Stanford and Oxford continue the compute work.
 
 The practical engineering challenges are severe:
 - **Precision**: optical analog systems are currently limited to ~4–8 bits effective precision due to noise and imperfect fabrication
@@ -293,7 +297,7 @@ Quantum computing receives outsized coverage in general technology media and occ
 
 **What quantum computing is not**: a replacement for GPU matrix multiplication. The transformer attention mechanism, convolution, and linear algebra operations that constitute modern DL workloads do not have known quantum speedups that scale usefully with model size. Grover's algorithm provides a $\sqrt{N}$ speedup for unstructured search — which doesn't map onto neural network training.
 
-**Current state (2024)**: Google's Willow chip (2024) demonstrated 105 qubits with below-threshold error correction — a genuine milestone in fault-tolerant quantum computing. IBM's 1,000+ qubit systems exist. But "quantum advantage" for practically relevant (non-synthetic benchmark) problems remains undemonstrated for machine learning.
+**Current state (2026)**: Google's Willow chip (Dec 2024) demonstrated 105 qubits with below-threshold error correction, and in 2025 Google reported a verifiable speed-up on a physics simulation task ("Quantum Echoes"). IBM, with 1,000+ qubit systems already built, targets a fault-tolerant machine (Starling) around 2029. But "quantum advantage" for practically relevant (non-synthetic benchmark) problems remains undemonstrated for machine learning.
 
 **Honest timeline**: quantum advantage for ML training or inference optimization: **unlikely in the 5-year horizon**; speculative in the 10-year horizon. The energy efficiency of quantum hardware for optimization problems may become relevant for hyperparameter search or certain combinatorial ML subproblems in the 2035+ horizon.
 
@@ -304,7 +308,8 @@ Quantum computing receives outsized coverage in general technology media and occ
 RISC-V's trajectory (introduced in [Chapter 33](./33_design_paradigm_wars.md)) is accelerating:
 - **China** has invested heavily; Alibaba's T-Head XuanTie RISC-V cores are in production silicon
 - **India** has a national RISC-V SoC program (VEGA series)
-- **RISC-V International** membership exceeds 4,000 organizations (2024)
+- **RISC-V International** membership exceeds 4,000 organizations, and the RVA23 profile (ratified Oct 2024) gives application processors a stable target including the vector extension
+- **Tenstorrent** builds AI accelerators around RISC-V cores and licenses its Ascalon CPU IP
 - **SiFive P870** (2024) targets Neoverse N2 class performance
 - **Ventana Veyron V2** (2024) claims competitive server-class throughput
 
@@ -316,18 +321,18 @@ The RISC-V threat to the incumbent ISA landscape is real but gradual. The missin
 
 ## Energy and Sustainability as the Binding Constraint
 
-The largest datacenters in the world are now constrained by **power delivery**, not by silicon. A GB200 NVL72 rack consumes **~120 kW**. A 100,000-GPU cluster (not unusual for frontier training) consumes **~1.2 GW** — comparable to a small nuclear power plant.
+The largest datacenters in the world are now constrained by **power delivery**, not by silicon. A GB200 NVL72 rack consumes **~120–130 kW**, about 1.7 kW per GPU once CPUs, switches and fans are counted. A 100,000-GPU Blackwell cluster therefore draws roughly **150–200 MW** with cooling, and the gigawatt campuses announced in 2025 (OpenAI's Stargate sites, Meta's Hyperion) are built for several hundred thousand GPUs each — comparable to a large nuclear power plant.
 
-Key figures (2024–2025):
-- Training GPT-4-class models: estimated 50–100 MWh per training run
-- Training Llama-3 405B: estimated ~30 MWh
-- Global AI compute energy (2024): estimated 100–150 TWh/year, growing ~2× per year
+Key figures:
+- Training Llama 3.1 405B took 30.8 million H100 GPU-hours (Meta's model card): about **21 GWh** at the GPU's 700 W rating alone, more with hosts and cooling
+- GPT-4-class training runs are estimated in the **tens of GWh**
+- All data centres used about **415 TWh** of electricity in 2024 (~1.5% of the world's), and the IEA projects ~945 TWh by 2030 with AI the main driver
 - Google, Microsoft, Amazon all announcing new nuclear (SMR) power agreements to meet AI datacenter demand
 
 This is not an abstract sustainability concern — it is a **binding engineering constraint** that will shape chip design:
 
 1. **Power walls at the rack**: liquid cooling, rear-door heat exchangers, immersion cooling are becoming standard, not optional ([Appendix D — Power & Thermals](./appendix_d_power_and_thermals.md))
-2. **Performance-per-watt competition**: the metric that determines data-center profitability is not TFLOP/s but **TFLOP/s per watt** (or tokens/joule for inference). Apple M-series and ARM Neoverse V2 win this metric for many workloads.
+2. **Performance-per-watt competition**: the metric that determines data-center profitability is not TFLOP/s but **TFLOP/s per watt** (or tokens/joule for inference). For inference that becomes tokens per joule, where the newest accelerators running FP4 lead and each generation's gain comes as much from datatypes as from silicon.
 3. **Memory bottleneck amplified**: moving data consumes energy; the convergence of bandwidth costs and power budgets doubly penalizes memory-intensive operations.
 4. **Low-precision dividend**: FP8 and FP4 reduce switching energy ($E \approx \tfrac{1}{2}CV_{dd}^2$, fewer capacitance switching) in addition to reducing bandwidth — the precision lever is simultaneously a compute, memory, and energy optimization.
 
@@ -339,34 +344,39 @@ This is not an abstract sustainability concern — it is a **binding engineering
 <div class="diagram-title">Chip Industry Technology Roadmap (2025–2030)</div>
 <div class="timeline">
   <div class="timeline-item">
-    <div class="timeline-year">2025</div>
-    <div class="timeline-title">HBM4 First Silicon + Gate-All-Around at Scale</div>
-    <div class="timeline-desc">Samsung/SK Hynix HBM4 samples; TSMC N2 GAA in volume (Apple A18); Intel 18A RibbonFET; UCIe 1.0 chiplet designs shipping; NVIDIA Rubin architecture disclosed</div>
+    <div class="timeline-year">2025 (done)</div>
+    <div class="timeline-title">Blackwell Ultra, N2 in Volume, 18A Ramps</div>
+    <div class="timeline-desc">GB300 NVL72 ships; TSMC N2 (first GAA) enters volume in Q4; Intel 18A with backside power ramps; HBM4 sampling; MI355X ships; NVFP4 pretraining demonstrated</div>
   </div>
   <div class="timeline-item">
-    <div class="timeline-year">2026</div>
-    <div class="timeline-title">NVIDIA Rubin + AMD MI400 + CXL 3.0 Deployment</div>
-    <div class="timeline-desc">Rubin on TSMC N2/A16 with HBM4; MI400 AMD chiplet accelerator; CXL 3.0 memory pools in hyperscaler deployments; co-packaged optics in switch ASICs reaching volume</div>
+    <div class="timeline-year">2026 (now)</div>
+    <div class="timeline-title">HBM4 Year: Rubin, Helios, TPU 8</div>
+    <div class="timeline-desc">Vera Rubin NVL72 with HBM4 and NVLink 6; AMD MI450-series Helios racks with UALink; Google TPU 8t/8i; Trainium3 at scale; CPO switches ship; first N2 phones</div>
   </div>
   <div class="timeline-item">
     <div class="timeline-year">2027</div>
-    <div class="timeline-title">3D Logic Stacking + SoIC in Production AI Chips</div>
-    <div class="timeline-desc">TSMC SoIC-XS SRAM-on-GPU stacking in products; hybrid bonded L2 cache density increases 3–4×; GPT-scale training clusters operating below 1 GW; RISC-V competitive server class</div>
+    <div class="timeline-title">Rubin Ultra, HBM4E, Backside Power at TSMC</div>
+    <div class="timeline-desc">Rubin Ultra (4 GPU dies per package) in Kyber racks; HBM4E; TSMC A16 with Super Power Rail; Trainium4 with NVLink Fusion</div>
   </div>
   <div class="timeline-item">
     <div class="timeline-year">2028</div>
-    <div class="timeline-title">HBM5 + CXL Memory Pooling Mainstream</div>
-    <div class="timeline-desc">~8–12 TB/s per chip from HBM5; CXL 3.1 memory disaggregation at hyperscaler scale; wafer-scale chiplet integration via SoW; in-memory DRAM compute (HBM-PIM v3) shipping</div>
+    <div class="timeline-title">Feynman, A14, High-NA at Intel</div>
+    <div class="timeline-desc">NVIDIA Feynman generation; TSMC A14; Intel 14A as the first High-NA EUV node; PCIe 8.0 finalized; CXL memory tiers routine in AI servers</div>
   </div>
   <div class="timeline-item">
     <div class="timeline-year">2029–2030</div>
-    <div class="timeline-title">Post-GAA Nodes + Potential 1nm Class</div>
-    <div class="timeline-desc">TSMC A14 / Intel 14A (beyond GAA); potential new transistor paradigms (CFET, 2D channel materials); co-packaged optics standard in GPU fabrics; optical compute prototypes at useful scale</div>
+    <div class="timeline-title">Beyond Nanosheets</div>
+    <div class="timeline-desc">TSMC A13/A12; complementary FET (CFET) and 2D-channel research toward production; optics moving into GPU scale-up fabrics; optical compute still in the lab</div>
   </div>
 </div>
 </div>
 
 ---
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>Every bet in this chapter attacks the cost of moving data. Pick the one you think arrives in your own workload first (HBM4, CPO, CXL tiers, SRAM-first decode chips or in-memory compute), and name the single number that would tell you it has arrived.</p>
+</div>
 
 ## The "Hardware Lottery" and Specialization Risk
 
@@ -389,11 +399,12 @@ The most important structural trend in the AI hardware industry outside of NVIDI
 
 | Company | Chip | Purpose | Generation | Notes |
 |---------|------|---------|-----------|-------|
-| Google | TPU v5p / Trillium | Training + Inference | v5p 2023, Trillium 2024 | Used for all Gemini model training and inference |
-| Amazon (AWS) | Trainium 2 / Inferentia 3 | Training / Inference | 2024 | NeuronSDK; growing PyTorch support |
-| Microsoft | Azure Maia 100 | Training | 2023 | OpenAI models in Azure; co-designed with NVIDIA for Copilot+ |
-| Meta | MTIA (Meta Training and Inference Accelerator) | Inference | v2 2024 | Recommendation models, ad ranking; growing LLM inference use |
-| Apple | Neural Engine (ANE) | On-device inference | M4 Ultra 76 TOPS | CoreML; supports INT8/INT16; transformer optimizations in M4 |
+| Google | TPU v7 Ironwood, TPU 8t / 8i | Training + inference (split in gen 8) | 2025 / 2026 | Gemini training and serving; sold to outside labs (Anthropic: up to 1M TPUs) |
+| Amazon (AWS) | Trainium2 / Trainium3 | Training and inference | 2024 / Dec 2025 | Neuron SDK; Trainium4 to support NVLink Fusion |
+| Microsoft | Maia 100 → Maia 200 | Inference | 2023 / Jan 2026 | Maia 200: TSMC 3 nm, ~10 PF FP4, 216 GB HBM3e |
+| Meta | MTIA v2 and successors | Ranking, recommendation, growing LLM inference | 2024 onward | 256 MB SRAM + LPDDR5 on v2 |
+| OpenAI | Custom accelerator with Broadcom | Inference | first racks 2H 2026 | 10 GW deployment plan |
+| Apple | Neural Engine + GPU neural accelerators | On-device inference | M4 (38 TOPS ANE), M5 (2025) | Core ML; MLX; M5 puts matrix units in every GPU core |
 
 The hyperscalers' motivation is straightforward: at 100,000+ GPU scale, a 10% efficiency improvement from hardware-software co-design saves hundreds of millions of dollars per year. NVIDIA captures most of this economic surplus today; custom silicon lets hyperscalers recapture it. Each of these chips runs a **proprietary software compiler** (Google XLA, AWS NeuronSDK, etc.) — further fragmenting the ML hardware ecosystem.
 
@@ -405,13 +416,13 @@ Translating the above into actionable guidance:
 
 **Bandwidth and memory stay king.** The memory wall ([Chapter 11](./11_memory_wall_and_bandwidth.md)) is not going away; it is getting worse for peak-TFLOP/s hardware and only partially addressed by HBM4/CXL. Architectures that minimize memory footprint (weight tying, quantization, parameter sharing) and inference patterns that batch efficiently will have disproportionate hardware advantage.
 
-**Precision will keep dropping.** FP8 is mainstream by 2025; FP4 (NVIDIA's NVFP4 in Blackwell's 4th-gen tensor cores) is viable for inference by 2025; MX (microscaling) formats ([Chapter 23](./23_number_formats_deep_dive.md)) allow per-block quantization at FP6/FP4 with minimal accuracy loss. Model training at FP8 end-to-end is an active research frontier. The practitioners who invest in quantization-aware training and mixed-precision workflows now will have the most hardware leverage in 2026.
+**Precision will keep dropping.** FP8 is mainstream by 2025; FP4 (NVFP4 in Blackwell's fifth-generation tensor cores, MXFP4 on AMD and TPU 8) is in production inference by 2025–26, and 4-bit pretraining has been demonstrated; MX (microscaling) formats ([Chapter 23](./23_number_formats_deep_dive.md)) allow per-block quantization at FP6/FP4 with minimal accuracy loss. FP8 training is in production (DeepSeek-V3 was trained in FP8). The practitioners who invest in quantization-aware training and mixed-precision workflows now will have the most hardware leverage in 2026.
 
 **Software portability becomes a competitive advantage.** As the hardware landscape fragments — NVIDIA, AMD, Google TPU, AWS Trainium, Apple, custom accelerators — the ability to run on multiple substrates becomes economically valuable. Triton kernels, torch.compile, OpenXLA, and model quantization formats (GGUF, ONNX, MLIR) are the portability layer. Investing in framework-agnostic model design reduces your cost and risk.
 
 **Co-design deepens.** The line between model architecture and hardware will continue to blur. The GPU's 2:4 structured sparsity format ([Chapter 26](./26_sparsity_hardware_view.md)) required model training that accommodated it; FP8 training required modified loss scaling and gradient handling. As HBM4, CXL memory pooling, and in-memory compute mature, the models and systems that take advantage will be co-designed from the start — not retrofitted.
 
-**Energy per inference, not peak TFLOP/s, is the business metric that matters.** A model deployed at 100M users × 50 requests/day × 1,000 tokens ≈ $5 \times 10^{12}$ tokens/day. At H100 pricing ($3.00/GPU-hour, ~5,000 tokens/second), that requires ~27,000 GPU-hours/day. A 2× improvement in tokens/watt reduces electricity costs and hardware footprint proportionately. This is why FP8/FP4, speculative decoding, attention sparsity, and KV cache compression ([Chapter 29](./29_memory_hierarchy_in_action.md)) all directly impact business case.
+**Energy per inference, not peak TFLOP/s, is the business metric that matters.** A model deployed at 100M users × 50 requests/day × 1,000 tokens ≈ $5 \times 10^{12}$ tokens/day. At ~5,000 tokens/second per H100, that is about 280,000 GPU-hours a day — roughly 11,600 GPUs running around the clock, ~$830,000 a day at $3 per GPU-hour. A 2× improvement in tokens/watt reduces electricity costs and hardware footprint proportionately. This is why FP8/FP4, speculative decoding, attention sparsity, and KV cache compression ([Chapter 29](./29_memory_hierarchy_in_action.md)) all directly impact business case.
 
 <div class="diagram">
 <div class="diagram-title">The Recurring Theme: Data Movement Is the Bottleneck</div>
@@ -432,14 +443,56 @@ Translating the above into actionable guidance:
 - **The post-Moore era** shifts generational gains from process scaling to specialization, packaging, memory architecture, and interconnects — the levers that address data movement rather than raw switching speed.
 - **Chiplets and UCIe** disaggregate SoC design, enabling mixed-node packaging and a future chiplet marketplace; AMD proved the concept in CPUs, and the entire industry is following.
 - **Advanced packaging** (CoWoS, 3D hybrid bonding, SoIC) has become a primary performance differentiator — HBM on an interposer is the reason AI GPUs have TB/s of bandwidth at all.
-- **CXL memory pooling** enables disaggregated, right-sized memory for AI inference infrastructure, reducing cost for 70B+ model serving; commercially available at small scale in 2024.
-- **Co-packaged optics** will reduce inter-node communication energy 3–5× by 2027–2028, partially relieving the distributed training bandwidth tax; already deployed in hyperscaler switch fabrics.
+- **CXL memory** adds a cheap, slow capacity tier (KV-cache parking, embeddings, offload), not a substitute for HBM bandwidth; expanders have shipped since 2024 and CXL 4.0 moves to PCIe 7.
+- **Co-packaged optics** is shipping in switches in 2026 (Broadcom, NVIDIA Quantum-X/Spectrum-X Photonics) with ~3.5× better link power efficiency; scale-up NVLink stays copper for now.
 - **In-memory and analog compute** are real but constrained to precision-tolerant edge inference today; digital PIM (HBM-PIM) is commercially available for bandwidth-limited workloads.
 - **Wafer-scale (Cerebras)** and **neuromorphic** chips occupy specialist niches; optical compute and quantum are 10–20 year horizons for ML workloads.
 - **Energy is now the binding constraint** at datacenter scale; perf/watt dominates perf/dollar; quantization and efficiency improvements compound into hundreds of millions of dollars in savings at hyperscaler deployment scale.
 
+## Check Yourself
+
+<details class="check">
+<summary>A 100,000-GPU cluster of NVL72 racks: estimate its power draw, and the annual energy at full load.</summary>
+<p>~1.7 kW per GPU all-in → ~170 MW, ~200 MW with cooling overhead (PUE ~1.2). × 8,760 h ≈ 1.75 TWh per year.</p>
+</details>
+
+<details class="check">
+<summary>Why is CXL memory a poor place for model weights during decode, but a good place for paused KV caches?</summary>
+<p>Decode reads every weight every step, so weights need the full HBM bandwidth (~8 TB/s vs ~64 GB/s for CXL). A paused conversation's KV cache is read once when it resumes, so a few milliseconds of transfer beats recomputing the prefill.</p>
+</details>
+
+<details class="check">
+<summary>How much SRAM does a Cerebras WSE-3 have, and roughly how many FP16 parameters fit in it?</summary>
+<p>~44 GB, which holds ~22B parameters at 2 bytes each (less once activations and KV are counted). Larger models are pipelined across several wafers.</p>
+</details>
+
+<details class="check">
+<summary>HBM4 doubles the interface width. Why does a Rubin GPU get ~2.5× the bandwidth of B200 rather than 2×?</summary>
+<p>Width doubles (1,024 → 2,048 bits per stack) and the shipping pin rate (~10–11 Gb/s) is slightly above HBM3e's ~8 Gb/s in B200, so per-stack bandwidth rises ~2.5× with the same eight stacks.</p>
+</details>
+
+<details class="check">
+<summary>Llama 3.1 405B used 30.8 million H100 GPU-hours. Estimate its training energy and explain why the estimate is a lower bound.</summary>
+<p>30.8 × 10⁶ h × 0.7 kW ≈ 21.6 GWh. It counts only GPU board power at TDP; CPUs, networking, storage and cooling (PUE) add more, while GPUs rarely sit at full TDP, which pulls the other way.</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| UCIe specifications | UCIe Consortium | [uciexpress.org/specifications](https://www.uciexpress.org/specifications) | Die-to-die standard; 2.0 (3D) and 3.0 (64 GT/s) |
+| JEDEC HBM4 standard (JESD270-4) | JEDEC, Apr 2025 | [jedec.org/news/pressreleases/jedec-and-indust…](https://www.jedec.org/news/pressreleases/jedec-and-industry-leaders-collaborate-release-jesd270-4-hbm4-standard) | HBM4 interface and channels |
+| CXL specifications | CXL Consortium | [computeexpresslink.org](https://computeexpresslink.org/) | CXL 1.1 through 4.0 |
+| NVIDIA Spectrum-X and Quantum-X silicon photonics switches | NVIDIA, Mar 2025 | [nvidianews.nvidia.com/news/nvidia-spectrum-x-…](https://nvidianews.nvidia.com/news/nvidia-spectrum-x-co-packaged-optics-networking-switches-ai-factories) | CPO switches and power claims |
+| Energy and AI | International Energy Agency, 2025 | [iea.org/reports/energy-and-ai](https://www.iea.org/reports/energy-and-ai) | Data-centre electricity 2024 and 2030 |
+| Llama 3.1 model card | Meta, 2024 | [github.com/meta-llama/llama-models/blob/main/…](https://github.com/meta-llama/llama-models/blob/main/models/llama3_1/MODEL_CARD.md) | Training GPU-hours for 405B |
+| Cerebras WSE-3 | Cerebras, 2024 | [cerebras.ai/chip](https://www.cerebras.ai/chip) | 44 GB SRAM, 21 PB/s, 900k cores |
+| An analog-AI chip for energy-efficient speech recognition and transcription | Ambrogio et al., Nature 2023 | [doi.org/10.1038/s41586-023-06337-5](https://doi.org/10.1038/s41586-023-06337-5) | IBM phase-change in-memory compute |
+| The Hardware Lottery | Hooker, 2020 | [arxiv.org/abs/2009.06489](https://arxiv.org/abs/2009.06489) | Specialization risk |
+| Quantum error correction below the surface code threshold | Google Quantum AI, Nature 2024 | [doi.org/10.1038/s41586-024-08449-y](https://doi.org/10.1038/s41586-024-08449-y) | Willow below-threshold result |
+
 ---
 
-*Next: [Appendix A — How Chips Are Made](./appendix_a_how_chips_are_made.md), a step-by-step walk through the physical fabrication process — from sand and wafer to EUV lithography, etch, doping, packaging, and yield — the manufacturing story that underpins everything in this guide.*
+**Next:** [Appendix A — How Chips Are Made](./appendix_a_how_chips_are_made.md) — A step-by-step walk through fabrication, from sand to EUV lithography, etch, doping, packaging and yield: the manufacturing story under every chip in this guide.
 
 [← Back to Table of Contents](./README.md)
