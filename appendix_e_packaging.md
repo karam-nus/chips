@@ -292,7 +292,7 @@ UCIe makes it possible to buy a compute chiplet from one vendor, an HBM controll
 |---|---|---|---|---|
 | Wire-bond (2D) | Single die on substrate | ~50–100 µm pads | Low-end MCUs, sensors | Legacy |
 | Flip-chip (2D) | Single die + C4 bumps | ~130–150 µm | CPUs, mainstream GPUs | Off-package DRAM only |
-| EMIB (Intel) | 2.5D silicon bridge in organic substrate | ~36–55 µm micro-bumps | Ponte Vecchio, Xeon 6, Gaudi 3 | Modular multi-die |
+| EMIB (Intel) | 2.5D silicon bridge in organic substrate | ~36–55 µm micro-bumps | Ponte Vecchio, Sapphire Rapids, Xeon 6 | Modular multi-die |
 | Foveros (Intel) | 3D logic on base die | ~36 µm bumps → ~9 µm (Foveros Direct) | Meteor/Lunar/Panther Lake | Client SoCs |
 | CoWoS-S / -L (TSMC 2.5D) | Dies + HBM on interposer | ~40–55 µm micro-bumps | H100, MI300 (S); B200, B300, Rubin (L) | HBM enablement |
 | SoIC (TSMC 3D) | Die on die, hybrid bonded | ~6–9 µm | MI300 XCD-on-IOD | Dense 3D compute |
