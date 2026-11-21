@@ -42,6 +42,36 @@ The **program counter** (Chapter 4) does always point at *some* next instruction
 
 ## From Power Button to Desktop: The Boot Sequence
 
+The whole life of the machine fits in one picture: a short relay that runs once, then a loop that runs until power-off.
+
+<!-- flowchart:boot_loop -->
+<div class="flowchart" id="fc-boot_loop">
+<div class="fc-title">Boot once, then sleep and wake for the rest of its life</div>
+<svg viewBox="0 0 800 420" width="800" role="img" aria-label="Boot once, then sleep and wake for the rest of its life">
+<path class="fc-edge" d="M159,36 L173,36"/><polygon class="fc-head" points="173,36 166,39.9 166,32.1"/>
+<path class="fc-edge" d="M319,36 L333,36"/><polygon class="fc-head" points="333,36 326,39.9 326,32.1"/>
+<path class="fc-edge" d="M479,36 L493,36"/><polygon class="fc-head" points="493,36 486,39.9 486,32.1"/>
+<path class="fc-edge" d="M639,36 L653,36"/><polygon class="fc-head" points="653,36 646,39.9 646,32.1"/>
+<path class="fc-edge" d="M726,64 L726,160 L550,160"/><polygon class="fc-head" points="550,160 557,156.2 557,163.8"/>
+<path class="fc-edge yes" d="M330,181 L330,212.5 L150,212.5 L150,244"/><polygon class="fc-head yes" points="150,244 146.2,237 153.8,237"/><text class="fc-elabel yes" x="322" y="214" text-anchor="end">yes</text>
+<path class="fc-edge no" d="M470,181 L470,212.5 L650,212.5 L650,244"/><polygon class="fc-head no" points="650,244 646.1,237 653.9,237"/><text class="fc-elabel no" x="478" y="214" text-anchor="start">no</text>
+<path class="fc-edge loop" d="M35,272 L20,272 L20,160 L250,160"/><polygon class="fc-head loop" points="250,160 243,163.8 243,156.2"/><text class="fc-elabel loop" x="26" y="150" text-anchor="start">blocks / slice ends</text>
+<path class="fc-edge" d="M650,300 L650,372 L550,372"/><polygon class="fc-head" points="550,372 557,368.1 557,375.9"/><text class="fc-elabel " x="660" y="340" text-anchor="start">device raises IRQ</text>
+<path class="fc-edge" d="M250,372 L150,372 L150,300"/><polygon class="fc-head" points="150,300 153.8,307 146.2,307"/><text class="fc-elabel " x="140" y="365" text-anchor="end">ISR marks a thread ready</text>
+<g class="fc-node start"><rect x="13" y="14" width="146" height="44" rx="16"/><text x="86" y="34" text-anchor="middle">Reset</text><text class="sub" x="86" y="47" text-anchor="middle">PC = reset vector</text></g>
+<g class="fc-node k-cyan"><rect x="173" y="8" width="146" height="56" rx="6"/><text x="246" y="28" text-anchor="middle">Firmware</text><text class="sub" x="246" y="41" text-anchor="middle">UEFI / BIOS: POST,</text><text class="sub" x="246" y="53" text-anchor="middle">trains DRAM</text></g>
+<g class="fc-node k-cyan"><rect x="333" y="8" width="146" height="56" rx="6"/><text x="406" y="28" text-anchor="middle">Bootloader</text><text class="sub" x="406" y="41" text-anchor="middle">loads the kernel</text><text class="sub" x="406" y="53" text-anchor="middle">into RAM</text></g>
+<g class="fc-node k-blue"><rect x="493" y="8" width="146" height="56" rx="6"/><text x="566" y="28" text-anchor="middle">Kernel init</text><text class="sub" x="566" y="41" text-anchor="middle">page tables, IDT,</text><text class="sub" x="566" y="53" text-anchor="middle">other cores online</text></g>
+<g class="fc-node k-blue"><rect x="653" y="8" width="146" height="56" rx="6"/><text x="726" y="28" text-anchor="middle">init (PID 1)</text><text class="sub" x="726" y="41" text-anchor="middle">services, login,</text><text class="sub" x="726" y="53" text-anchor="middle">display server</text></g>
+<g class="fc-node decision"><polygon points="250,160 264,139 536,139 550,160 536,181 264,181"/><text x="400" y="164" text-anchor="middle">Scheduler: any thread ready?</text></g>
+<g class="fc-node k-green"><rect x="35" y="244" width="230" height="56" rx="6"/><text x="150" y="264" text-anchor="middle">Run a thread</text><text class="sub" x="150" y="277" text-anchor="middle">for a time slice, until it</text><text class="sub" x="150" y="289" text-anchor="middle">blocks or is preempted</text></g>
+<g class="fc-node k-purple"><rect x="535" y="244" width="230" height="56" rx="6"/><text x="650" y="264" text-anchor="middle">Idle thread</text><text class="sub" x="650" y="277" text-anchor="middle">HLT / WFI, then deeper</text><text class="sub" x="650" y="289" text-anchor="middle">C-states while nothing happens</text></g>
+<g class="fc-node k-orange"><rect x="250" y="350" width="300" height="44" rx="6"/><text x="400" y="370" text-anchor="middle">Interrupt</text><text class="sub" x="400" y="383" text-anchor="middle">timer tick, keypress, packet, &quot;GPU kernel done&quot;</text></g>
+</svg>
+<div class="fc-caption">The top row runs once per power-on. Everything after that is the bottom loop: the scheduler runs ready threads, and when none are ready the core halts until an interrupt wakes it.</div>
+</div>
+<!-- /flowchart:boot_loop -->
+
 When power stabilizes, the CPU is electrically **reset**: its registers take defined values and the program counter is forced to a hard-wired address called the **reset vector** (on x86, physical `0xFFFFFFF0`, right at the top of the address space; on ARM, an address defined by the SoC). Whatever code lives there runs first. That code is **firmware**, baked into a flash chip on the motherboard.
 
 <div class="diagram">
@@ -139,9 +169,11 @@ Modern CPUs go far deeper than a simple halt, via **C-states** (CPU idle power s
 | C-state | Name | What's turned off | Wake latency | Relative power |
 |:-------:|------|-------------------|:------------:|:--------------:|
 | **C0** | Active | nothing — executing | — | 100% |
-| **C1** | Halt | core clock gated (`HLT`) | ~1–5 ns | ~30–50% |
-| **C3** | Sleep | L1/L2 flushed, PLLs off | ~50–100 ns | ~10–20% |
-| **C6** | Deep power down | core voltage ≈ 0, state saved to SRAM | ~µs | ~1–5% |
+| **C1** | Halt | core clock gated (`HLT`) | ~1–2 µs | ~30–50% |
+| **C3** | Sleep | L1/L2 flushed, PLLs off | ~10–60 µs | ~10–20% |
+| **C6** | Deep power down | core voltage ≈ 0, state saved to SRAM | ~50–200 µs | ~1–5% |
+
+The exact latencies vary by processor; on Linux, `/sys/devices/system/cpu/cpu0/cpuidle/state*/latency` lists the ones your kernel uses.
 
 Deeper states save more power but take longer to wake — a latency/efficiency trade-off the kernel manages continuously. And **tickless (NO_HZ) kernels** go one step further: if a core will be idle for a while, the kernel *stops the periodic timer interrupt itself*, so a deeply idle laptop core can sleep for tens of milliseconds uninterrupted — which is why your laptop battery lasts hours while "doing nothing."
 
@@ -186,7 +218,7 @@ Watch the whole machine breathe through a single event:
   <div class="flow-arrow accent"></div>
   <div class="flow-node accent wide">② You press a key → keyboard controller raises an IRQ.</div>
   <div class="flow-arrow accent"></div>
-  <div class="flow-node green wide">③ A core wakes (C6 → C0 in ~µs), runs the keyboard ISR, queues a "key" event, marks the focused app's thread ready.</div>
+  <div class="flow-node green wide">③ A core wakes (C6 → C0 in tens to hundreds of µs), runs the keyboard ISR, queues a "key" event, marks the focused app's thread ready.</div>
   <div class="flow-arrow accent"></div>
   <div class="flow-node blue wide">④ Scheduler dispatches the app thread; it computes the new character and writes pixels into the back framebuffer.</div>
   <div class="flow-arrow accent"></div>
@@ -209,7 +241,7 @@ This exact pattern governs how your training and inference jobs actually run —
 <div class="diagram-grid cols-2">
   <div class="diagram-card accent">
     <div class="card-title">The host loop launches, then sleeps</div>
-    <div class="card-desc">Your Python loop calls the driver to enqueue kernels on a CUDA stream, then often blocks on <code>torch.cuda.synchronize()</code> — the host thread is parked (idle/halted) until the GPU raises a <strong>completion interrupt</strong>. The CPU isn't "running the model"; it's dispatching and waiting.</div>
+    <div class="card-desc">Your Python loop calls the driver to enqueue kernels on a CUDA stream, then often waits in <code>torch.cuda.synchronize()</code>. By default the CUDA driver may <em>spin</em> on a completion flag for the lowest latency, or yield the core; with blocking-sync it parks the thread until the GPU raises a <strong>completion interrupt</strong>. The CPU isn't "running the model"; it's dispatching and waiting.</div>
   </div>
   <div class="diagram-card orange">
     <div class="card-title">A slow host loop starves the GPU</div>
@@ -239,6 +271,48 @@ When you profile a training step and see the GPU sitting at 60% utilization, you
 - **Idle = `HLT`/`WFI` + C-states**: the core stops its clock and parks in a low-power state (C1→C6) until an interrupt; **tickless** kernels let it sleep even longer. *This* is what happens when "nothing" is running.
 - The **screen stays lit by dedicated hardware** — the display controller DMA-streams the framebuffer to the panel at the refresh rate with no per-frame CPU work.
 - Your **GPU jobs are the same dance**: the host enqueues kernels and idles awaiting a completion interrupt — so host-loop overhead, CUDA Graphs, and batching directly determine whether the accelerator stays busy.
+
+<div class="callout ponder">
+<span class="callout-title">Ponder</span>
+<p>A GPU server spends most of its life waiting: the CPU for the GPU, the GPU for the next batch, both for the network. Pick one wait in your own pipeline and ask whether it is a sleep (cheap, slow to wake) or a spin (instant, burns a core). Which would you rather have there?</p>
+</div>
+
+## Check Yourself
+
+<details class="check">
+<summary>A core in C6 takes ~100 µs to wake. Why might a latency-critical server disable deep C-states, and what does it cost?</summary>
+<p>Every interrupt that lands on a sleeping core pays the wake-up latency before the handler runs, which shows up as tail latency. Limiting cores to C1 keeps wake-ups at ~1 µs but raises idle power.</p>
+</details>
+
+<details class="check">
+<summary>Why does a 4K display keep showing an image while every CPU core is halted?</summary>
+<p>The display controller DMA-reads the ~33 MB framebuffer and drives the panel on its own timing; the CPU and GPU only write a new frame when the image changes. Panel self-refresh can idle even that.</p>
+</details>
+
+<details class="check">
+<summary>What is the reset vector, and why can't the first firmware code use DRAM?</summary>
+<p>The fixed address the program counter is forced to at reset (0xFFFFFFF0 on x86), mapped to flash. DRAM has not been trained or initialized yet, so early firmware runs from flash and cache-as-RAM until it brings memory up.</p>
+</details>
+
+<details class="check">
+<summary>Your training loop shows the GPU 60% busy, with gaps between kernels. Name two host-side causes and a fix for each.</summary>
+<p>Python and launch overhead per kernel (fix: CUDA Graphs or torch.compile to batch launches) and data loading on the critical path (fix: more DataLoader workers, pinned memory and prefetching).</p>
+</details>
+
+<details class="check">
+<summary>Why is interrupt-driven I/O usually better than polling, and when is polling better?</summary>
+<p>Interrupts let idle cores sleep and wake only when needed. At very high event rates (100G networking, NVMe at millions of IOPS) the per-interrupt overhead dominates, so drivers switch to polling (NAPI, io_uring polling, DPDK).</p>
+</details>
+
+## References
+
+| Source | Author / Org, Year | Link | What this chapter takes from it |
+|---|---|---|---|
+| Operating Systems: Three Easy Pieces | Arpaci-Dusseau & Arpaci-Dusseau | [pages.cs.wisc.edu/~remzi/OSTEP](https://pages.cs.wisc.edu/~remzi/OSTEP/) | Scheduling, interrupts, context switches |
+| UEFI Specification | UEFI Forum | [uefi.org/specifications](https://uefi.org/specifications) | Firmware boot phases |
+| Linux CPU idle (cpuidle) documentation | Linux kernel | [docs.kernel.org/admin-guide/pm/cpuidle.html](https://docs.kernel.org/admin-guide/pm/cpuidle.html) | C-states, governors, tickless idle |
+| Intel 64 and IA-32 Architectures Software Developer's Manual | Intel | [intel.com/content/www/us/en/developer/article…](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html) | Reset vector, HLT, interrupt descriptor table |
+| CUDA Runtime API: cudaSetDeviceFlags | NVIDIA | [docs.nvidia.com/cuda/cuda-runtime-api/group__…](https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__DEVICE.html) | Spin, yield and blocking-sync scheduling |
 
 ---
 

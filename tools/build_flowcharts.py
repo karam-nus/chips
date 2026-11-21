@@ -321,6 +321,32 @@ CHARTS["fab_loop"] = dict(
 )
 
 
+# Appendix H — boot once, then sleep and wake forever
+CHARTS["boot_loop"] = dict(
+    file="appendix_h_how_a_computer_runs.md", w=800, h=420,
+    title="Boot once, then sleep and wake for the rest of its life",
+    caption="The top row runs once per power-on. Everything after that is the bottom loop: the scheduler runs ready threads, and when none are ready the core halts until an interrupt wakes it.",
+    nodes=[
+        N("reset", 86, 36, "Reset", kind="start", sub="PC = reset vector", w=146),
+        N("fw", 246, 36, "Firmware", k="cyan", sub=["UEFI / BIOS: POST,", "trains DRAM"], w=146),
+        N("boot", 406, 36, "Bootloader", k="cyan", sub=["loads the kernel", "into RAM"], w=146),
+        N("kern", 566, 36, "Kernel init", k="blue", sub=["page tables, IDT,", "other cores online"], w=146),
+        N("init", 726, 36, "init (PID 1)", k="blue", sub=["services, login,", "display server"], w=146),
+        N("sched", 400, 160, ["Scheduler: any thread ready?"], kind="dec", w=300),
+        N("run", 150, 272, "Run a thread", k="green", sub=["for a time slice, until it", "blocks or is preempted"], w=230),
+        N("idle", 650, 272, "Idle thread", k="purple", sub=["HLT / WFI, then deeper", "C-states while nothing happens"], w=230),
+        N("irq", 400, 372, "Interrupt", k="orange", sub="timer tick, keypress, packet, \"GPU kernel done\"", w=300),
+    ],
+    edges=[E("reset", "fw", "r", "l"), E("fw", "boot", "r", "l"), E("boot", "kern", "r", "l"), E("kern", "init", "r", "l"),
+           E("init", "sched", "b", "r", via=[(726, 160)]),
+           E("sched", "run", "b-70", "t", label="yes", kind="yes", lpos=(322, 214, "end")),
+           E("sched", "idle", "b+70", "t", label="no", kind="no", lpos=(478, 214, "start")),
+           E("run", "sched", "l", "l", label="blocks / slice ends", kind="loop", via=[(20, 272), (20, 160)], lpos=(26, 150, "start")),
+           E("idle", "irq", "b", "r", label="device raises IRQ", lpos=(660, 340, "start"), via=[(650, 372)]),
+           E("irq", "run", "l", "b", label="ISR marks a thread ready", lpos=(140, 365, "end"), via=[(150, 372)])],
+)
+
+
 # --------------------------------------------------------------------------- inject
 def inject(check=False):
     stale = []
