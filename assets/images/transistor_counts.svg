@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 440" width="760" height="440" role="img" aria-labelledby="t d" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">
+<title id="t">Transistors per chip, 1971 to 2026</title>
+<desc id="d">Log-scale scatter of transistor counts from the Intel 4004 (2,300) to NVIDIA Rubin (336 billion), with a reference line doubling every two years. The points track the line for five decades.</desc>
+<rect width="760" height="440" fill="#141414"/>
+<text x="70.0" y="24.0" font-size="15" fill="#e5e5e5" text-anchor="start" font-weight="700" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">Transistors per chip, 1971–2026</text>
+<text x="70.0" y="41.0" font-size="11" fill="#a3a3a3" text-anchor="start" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">log scale · dashed line = doubling every two years from the 4004</text>
+<line x1="70.0" y1="388.0" x2="736.0" y2="388.0" stroke="#2a2a2a" stroke-width="1"/>
+<text x="62.0" y="392.0" font-size="10.5" fill="#a3a3a3" text-anchor="end" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">1K</text>
+<line x1="70.0" y1="354.4" x2="736.0" y2="354.4" stroke="#2a2a2a" stroke-width="1"/>
+<text x="62.0" y="358.4" font-size="10.5" fill="#a3a3a3" text-anchor="end" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">10K</text>
+<line x1="70.0" y1="320.8" x2="736.0" y2="320.8" stroke="#2a2a2a" stroke-width="1"/>
+<text x="62.0" y="324.8" font-size="10.5" fill="#a3a3a3" text-anchor="end" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">100K</text>
+<line x1="70.0" y1="287.2" x2="736.0" y2="287.2" stroke="#2a2a2a" stroke-width="1"/>
+<text x="62.0" y="291.2" font-size="10.5" fill="#a3a3a3" text-anchor="end" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">1M</text>
+<line x1="70.0" y1="253.6" x2="736.0" y2="253.6" stroke="#2a2a2a" stroke-width="1"/>
+<text x="62.0" y="257.6" font-size="10.5" fill="#a3a3a3" text-anchor="end" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">10M</text>
+<line x1="70.0" y1="220.0" x2="736.0" y2="220.0" stroke="#2a2a2a" stroke-width="1"/>
+<text x="62.0" y="224.0" font-size="10.5" fill="#a3a3a3" text-anchor="end" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">100M</text>
+<line x1="70.0" y1="186.4" x2="736.0" y2="186.4" stroke="#2a2a2a" stroke-width="1"/>
+<text x="62.0" y="190.4" font-size="10.5" fill="#a3a3a3" text-anchor="end" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">1B</text>
+<line x1="70.0" y1="152.8" x2="736.0" y2="152.8" stroke="#2a2a2a" stroke-width="1"/>
+<text x="62.0" y="156.8" font-size="10.5" fill="#a3a3a3" text-anchor="end" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">10B</text>
+<line x1="70.0" y1="119.2" x2="736.0" y2="119.2" stroke="#2a2a2a" stroke-width="1"/>
+<text x="62.0" y="123.2" font-size="10.5" fill="#a3a3a3" text-anchor="end" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">100B</text>
+<line x1="70.0" y1="85.6" x2="736.0" y2="85.6" stroke="#2a2a2a" stroke-width="1"/>
+<text x="62.0" y="89.6" font-size="10.5" fill="#a3a3a3" text-anchor="end" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">1T</text>
+<line x1="70.0" y1="52.0" x2="736.0" y2="52.0" stroke="#2a2a2a" stroke-width="1"/>
+<text x="62.0" y="56.0" font-size="10.5" fill="#a3a3a3" text-anchor="end" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">10T</text>
+<line x1="92.2" y1="52.0" x2="92.2" y2="388.0" stroke="#2a2a2a" stroke-width="1"/>
+<text x="92.2" y="406.0" font-size="10.5" fill="#a3a3a3" text-anchor="middle" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">1970</text>
+<line x1="203.2" y1="52.0" x2="203.2" y2="388.0" stroke="#2a2a2a" stroke-width="1"/>
+<text x="203.2" y="406.0" font-size="10.5" fill="#a3a3a3" text-anchor="middle" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">1980</text>
+<line x1="314.2" y1="52.0" x2="314.2" y2="388.0" stroke="#2a2a2a" stroke-width="1"/>
+<text x="314.2" y="406.0" font-size="10.5" fill="#a3a3a3" text-anchor="middle" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">1990</text>
+<line x1="425.2" y1="52.0" x2="425.2" y2="388.0" stroke="#2a2a2a" stroke-width="1"/>
+<text x="425.2" y="406.0" font-size="10.5" fill="#a3a3a3" text-anchor="middle" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">2000</text>
+<line x1="536.2" y1="52.0" x2="536.2" y2="388.0" stroke="#2a2a2a" stroke-width="1"/>
+<text x="536.2" y="406.0" font-size="10.5" fill="#a3a3a3" text-anchor="middle" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">2010</text>
+<line x1="647.2" y1="52.0" x2="647.2" y2="388.0" stroke="#2a2a2a" stroke-width="1"/>
+<text x="647.2" y="406.0" font-size="10.5" fill="#a3a3a3" text-anchor="middle" font-weight="400" font-family="JetBrains Mono, SF Mono, Consolas, monospace">2020</text>
+<line x1="70.0" y1="388.0" x2="736.0" y2="388.0" stroke="#525252" stroke-width="1"/>
+<path d="M103.3,375.8 L114.4,370.8 L125.5,365.7 L136.6,360.7 L147.7,355.6 L158.8,350.6 L169.9,345.5 L181.0,340.4 L192.1,335.4 L203.2,330.3 L214.3,325.3 L225.4,320.2 L236.5,315.2 L247.6,310.1 L258.7,305.0 L269.8,300.0 L280.9,294.9 L292.0,289.9 L303.1,284.8 L314.2,279.8 L325.3,274.7 L336.4,269.6 L347.5,264.6 L358.6,259.5 L369.7,254.5 L380.8,249.4 L391.9,244.4 L403.0,239.3 L414.1,234.2 L425.2,229.2 L436.3,224.1 L447.4,219.1 L458.5,214.0 L469.6,209.0 L480.7,203.9 L491.8,198.8 L502.9,193.8 L514.0,188.7 L525.1,183.7 L536.2,178.6 L547.3,173.6 L558.4,168.5 L569.5,163.4 L580.6,158.4 L591.7,153.3 L602.8,148.3 L613.9,143.2 L625.0,138.2 L636.1,133.1 L647.2,128.0 L658.3,123.0 L669.4,117.9 L680.5,112.9 L691.6,107.8 L702.7,102.8 L713.8,97.7 L724.9,92.6" fill="none" stroke="#737373" stroke-width="1.5" stroke-dasharray="5 4"/>
+<circle cx="103.3" cy="375.8" r="4.2" fill="#60a5fa" stroke="#141414" stroke-width="1"/>
+<text x="111.3" y="389.8" font-size="10" fill="#e5e5e5" text-anchor="start" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">Intel 4004 · 2.3K</text>
+<circle cx="136.6" cy="366.1" r="4.2" fill="#60a5fa" stroke="#141414" stroke-width="1"/>
+<circle cx="181.0" cy="338.9" r="4.2" fill="#60a5fa" stroke="#141414" stroke-width="1"/>
+<text x="189.0" y="332.9" font-size="10" fill="#e5e5e5" text-anchor="start" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">Intel 8086 · 29K</text>
+<circle cx="225.4" cy="316.5" r="4.2" fill="#60a5fa" stroke="#141414" stroke-width="1"/>
+<circle cx="258.7" cy="306.0" r="4.2" fill="#60a5fa" stroke="#141414" stroke-width="1"/>
+<circle cx="303.1" cy="284.5" r="4.2" fill="#60a5fa" stroke="#141414" stroke-width="1"/>
+<text x="311.1" y="278.5" font-size="10" fill="#e5e5e5" text-anchor="start" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">Intel 80486 · 1.2M</text>
+<circle cx="347.5" cy="270.7" r="4.2" fill="#60a5fa" stroke="#141414" stroke-width="1"/>
+<circle cx="391.9" cy="257.8" r="4.2" fill="#60a5fa" stroke="#141414" stroke-width="1"/>
+<circle cx="425.2" cy="232.7" r="4.2" fill="#60a5fa" stroke="#141414" stroke-width="1"/>
+<text x="433.2" y="226.7" font-size="10" fill="#e5e5e5" text-anchor="start" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">Pentium 4 · 42M</text>
+<circle cx="491.8" cy="204.4" r="4.2" fill="#60a5fa" stroke="#141414" stroke-width="1"/>
+<circle cx="491.8" cy="192.0" r="4.2" fill="#e8916a" stroke="#141414" stroke-width="1"/>
+<text x="499.8" y="186.0" font-size="10" fill="#e5e5e5" text-anchor="start" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">G80 (first CUDA GPU) · 681M</text>
+<circle cx="536.2" cy="170.4" r="4.2" fill="#e8916a" stroke="#141414" stroke-width="1"/>
+<circle cx="558.4" cy="157.8" r="4.2" fill="#e8916a" stroke="#141414" stroke-width="1"/>
+<circle cx="602.8" cy="146.6" r="4.2" fill="#e8916a" stroke="#141414" stroke-width="1"/>
+<circle cx="613.9" cy="141.9" r="4.2" fill="#e8916a" stroke="#141414" stroke-width="1"/>
+<circle cx="647.2" cy="150.4" r="4.2" fill="#60a5fa" stroke="#141414" stroke-width="1"/>
+<text x="655.2" y="164.4" font-size="10" fill="#e5e5e5" text-anchor="start" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">Apple A14 · 12B</text>
+<circle cx="647.2" cy="128.1" r="4.2" fill="#e8916a" stroke="#141414" stroke-width="1"/>
+<circle cx="669.4" cy="122.5" r="4.2" fill="#e8916a" stroke="#141414" stroke-width="1"/>
+<text x="660.4" y="114.5" font-size="10" fill="#e5e5e5" text-anchor="end" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">H100 · 80B</text>
+<circle cx="680.5" cy="113.0" r="4.2" fill="#e8916a" stroke="#141414" stroke-width="1"/>
+<circle cx="691.6" cy="108.5" r="4.2" fill="#e8916a" stroke="#141414" stroke-width="1"/>
+<text x="682.6" y="102.5" font-size="10" fill="#e5e5e5" text-anchor="end" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">B200 (2 dies) · 208B</text>
+<circle cx="713.8" cy="101.5" r="4.2" fill="#e8916a" stroke="#141414" stroke-width="1"/>
+<text x="704.8" y="89.5" font-size="10" fill="#e5e5e5" text-anchor="end" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">Rubin (2 dies) · 336B</text>
+<rect x="687.1" y="60.9" width="9" height="9" fill="none" stroke="#fbbf24" stroke-width="1.6"/>
+<text x="682.6" y="69.4" font-size="10" fill="#fbbf24" text-anchor="end" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">Cerebras WSE-3 (whole wafer) · 4T</text>
+<circle cx="86" cy="62" r="4.2" fill="#60a5fa"/>
+<text x="96.0" y="66.0" font-size="10.5" fill="#e5e5e5" text-anchor="start" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">CPUs and phone SoCs</text>
+<circle cx="86" cy="79" r="4.2" fill="#e8916a"/>
+<text x="96.0" y="83.0" font-size="10.5" fill="#e5e5e5" text-anchor="start" font-weight="400" font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif">GPUs and AI accelerators</text>
+</svg>
