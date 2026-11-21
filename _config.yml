@@ -1,5 +1,5 @@
 title: "Chips — The Complete Guide"
-description: "From Sand to Supercomputers: a first-principles guide to chip design and architecture for AI/ML model-optimization practitioners. Transistors, datatypes, accelerators, and the hardware reasons behind every quantization and sparsity decision."
+description: "From Sand to Supercomputers: a first-principles guide to chip design and AI accelerators for ML practitioners, updated for 2026. Transistors to Rubin, TPU 8 and MI455X; number formats down to FP4; the hardware reasons behind quantization, sparsity, KV caches and multi-GPU training; with interactive labs and an accelerator atlas."
 baseurl: "/chips"
 url: "https://karam-nus.github.io"
 
@@ -33,6 +33,7 @@ exclude:
   - Gemfile.lock
   - vendor/
   - .github/
+  - PROMPT.md
 
 navigation:
   - title: "Home"
