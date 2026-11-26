@@ -10,7 +10,7 @@ title: "Interactive Labs"
 
 ## Overview
 
-Eight small instruments, one per load-bearing idea in this guide. Each one is a plain JavaScript widget with no dependencies, built around a pure function that is checked against hand-derived values by `node tools/test_labs.js`. Every lab also appears inside the chapter it belongs to; this page collects them so you can play with all of them in one place.
+Nine small instruments, one per load-bearing idea in this guide. Each one is a plain JavaScript widget with no dependencies, built around a pure function that is checked against hand-derived values by `node tools/test_labs.js`. Every lab also appears inside the chapter it belongs to; this page collects them so you can play with all of them in one place.
 
 <div class="diagram">
 <div class="diagram-grid cols-4">
@@ -21,6 +21,7 @@ Eight small instruments, one per load-bearing idea in this guide. Each one is a 
   <div class="diagram-card green"><div class="card-title">Wafer yield</div><div class="card-desc">Why big dies cost so much. <a href="./appendix_a_how_chips_are_made.html">App A</a></div></div>
   <div class="diagram-card pink"><div class="card-title">2:4 sparsity</div><div class="card-desc">What the sparse tensor core stores. <a href="./26_sparsity_hardware_view.html">Ch 26</a></div></div>
   <div class="diagram-card yellow"><div class="card-title">Quantization</div><div class="card-desc">Bits, groups, outliers, MXFP4 vs NVFP4. <a href="./25_quantization_hardware_view.html">Ch 25</a></div></div>
+  <div class="diagram-card cyan"><div class="card-title">Cache simulator</div><div class="card-desc">Lines, sets, ways, three kinds of miss. <a href="./appendix_i_memory_and_caches.html">App I</a></div></div>
   <div class="diagram-card blue"><div class="card-title">Atlas</div><div class="card-desc">26 accelerators, sortable. <a href="./atlas.html">Atlas</a></div></div>
 </div>
 </div>
@@ -69,7 +70,13 @@ Signal-to-quantization-noise for a synthetic tensor with optional outlier channe
 
 <div class="lab" data-lab="quant"><noscript><div class="lab-noscript">This lab needs JavaScript.</div></noscript></div>
 
-## 8. Accelerator atlas
+## 8. Cache simulator
+
+A small set-associative cache with LRU replacement. Walk an array, walk matrix columns or read at random, and watch every miss get classified as compulsory, capacity or conflict. The interesting case: columns of a matrix whose rows are exactly 4 KB apart, in a direct-mapped cache, then the same with one line of padding per row.
+
+<div class="lab" data-lab="cache"><noscript><div class="lab-noscript">This lab needs JavaScript.</div></noscript></div>
+
+## 9. Accelerator atlas
 
 The full data set lives on its own page: [Accelerator Atlas](./atlas.md).
 

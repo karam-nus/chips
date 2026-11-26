@@ -54,6 +54,8 @@ Every acronym, concept, and term that appears across the guide, defined in one p
 | **CUDA** | Compute Unified Device Architecture. NVIDIA's parallel computing platform and programming model, allowing GPU kernels to be written in C/C++/Fortran-like syntax (Ch 6, Ch 15). |
 | **CXL** | Compute Express Link. An open, cache-coherent interconnect over the PCIe physical layer (PCIe 5 for CXL 1.1/2.0, PCIe 6 for 3.x, PCIe 7 for 4.0) used for memory expansion and pooling (Ch 12, Ch 35). |
 | **Cache coherence** | The guarantee that all processors in a multicore system see a consistent view of shared memory. Implemented via protocols such as MESI (Ch 10). |
+| **Cache line** | The fixed-size block (64 bytes on most CPUs) that caches move between levels; reading one byte brings in its whole line (Appendix I). |
+| **Cache (L1 / L2 / L3)** | Small, fast SRAM memories that keep copies of recently used data. L1 is private to a core and ~1 ns; L2 is per core or cluster, ~3–5 ns; L3 (last-level cache) is shared, ~10–20 ns (Ch 9, Appendix I). |
 | **Chiplet** | A smaller die designed to be assembled with others in a single package, replacing one large monolithic die. Improves yield and enables mixing of process nodes (Ch 22, Appendix E). |
 | **Clock gating** | Disabling the clock signal to an idle block to eliminate its dynamic power consumption without fully powering it down (Appendix D). |
 | **Continuous batching** | Serving technique that adds and removes requests from the running batch at every decode step instead of waiting for a whole batch to finish (Ch 29). |
@@ -144,6 +146,7 @@ Every acronym, concept, and term that appears across the guide, defined in one p
 | Term | Definition |
 |---|---|
 | **Leakage power** | Static power consumed by transistors that are nominally "off" due to subthreshold and gate-oxide leakage currents. Grew dramatically at nodes below 65 nm and helped end Dennard scaling (Ch 1, Appendix D). |
+| **Locality** | The tendency of programs to reuse recent data (temporal) and data near it (spatial); the reason caches work (Appendix I). |
 | **LPU** | Language Processing Unit. Groq's SRAM-only, compiler-scheduled inference chip; NVIDIA licensed the technology in December 2025 (Ch 21). |
 | **LUT** | Look-Up Table. The basic reconfigurable compute element in an FPGA — typically a 4–6 input truth table stored in SRAM. Any combinational logic function of $n$ inputs can be implemented with a $2^n$-entry LUT (Ch 20). |
 
@@ -160,6 +163,7 @@ Every acronym, concept, and term that appears across the guide, defined in one p
 | **MXU** | Matrix Multiply Unit. Google's name for the systolic array inside a TPU that performs large matrix multiplications in a wave of multiply-accumulate operations (Ch 16). |
 | **MXFP / MX formats** | Microscaling floating-point. OCP MX specification (MXFP8, MXFP6, MXFP4) adds a per-block shared exponent scale factor to low-precision formats, reducing quantization error (Ch 23). |
 | **MLA** | Multi-head Latent Attention (DeepSeek-V2/V3). Caches a compressed latent per token instead of per-head K and V, shrinking the KV cache several-fold (Ch 29). |
+| **MRAM / RRAM / PCM** | Non-volatile memories that store a bit as magnetic orientation, filament resistance or crystal phase; used as embedded memory and studied for compute-in-memory (Appendix I). |
 
 ---
 
@@ -223,6 +227,7 @@ Every acronym, concept, and term that appears across the guide, defined in one p
 | **SM** | Streaming Multiprocessor. The fundamental compute unit of an NVIDIA GPU. An H100 has 132 SMs, each with tensor cores, CUDA cores, shared memory, and warp schedulers (Ch 15). |
 | **SoC** | System-on-Chip. An IC that integrates CPU, GPU/NPU, memory controllers, I/O, and other subsystems on one die. Apple M-series and Qualcomm Snapdragon are SoCs (Ch 22). |
 | **SoIC** | System on Integrated Chips. TSMC's 3D stacking with hybrid bonding; used to stack AMD MI300's compute dies on its I/O dies (Appendix E). |
+| **Shared memory (GPU)** | A software-managed slice of each SM's on-chip SRAM that a kernel loads and reuses explicitly; the key to fast tiled kernels such as FlashAttention (Ch 15, Appendix I). |
 | **SRAM** | Static Random-Access Memory. Fast, low-latency memory (6T cell) used for caches and register files on-chip. ~100× faster than DRAM but ~30× more expensive per bit and ~30× less dense (Ch 9). |
 | **SVA** | SystemVerilog Assertions. A formal specification language embedded in SystemVerilog for expressing design properties that verification tools check exhaustively or in simulation (Ch 32). |
 | **Systolic array** | A 2D array of processing elements (PEs) where data flows rhythmically between neighbors like a heartbeat. Each PE performs a MAC. The Google TPU's MXU is a 128×128 or 256×256 systolic array (Ch 16). |

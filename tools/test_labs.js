@@ -93,5 +93,28 @@ let macs = 0; const N = 4;
 for (let t = 0; t <= 3 * N - 3; t++) for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) if (L.systolicK(t, i, j, N) >= 0) macs++;
 eq(macs, N * N * N, 'every MAC happens exactly once in 3N-2 cycles');
 
+// ---- cache simulator: hand-derived hit/miss counts
+{
+  const seq = L.accessPattern('seq', 16384);                 // 4096 reads per pass, 2 passes
+  const a = L.cacheSim(seq, { size: 32768, line: 64, ways: 8 });
+  eq(a.counts.compulsory, 256, '16 KB / 64 B lines = 256 compulsory misses');
+  eq(a.counts.hits, 8192 - 256, 'everything else hits when the working set fits');
+  const b = L.cacheSim(L.accessPattern('seq', 65536), { size: 32768, line: 64, ways: 8 });
+  eq(b.counts.compulsory, 1024, '64 KB working set: 1024 compulsory');
+  eq(b.counts.capacity, 1024, 'second pass misses again: capacity (LRU, set too big)');
+  eq(b.counts.hits, 32768 - 2048, '15 of 16 reads per line still hit');
+  const col = L.accessPattern('col', 65536, { rowBytes: 4096, cols: 1, passes: 2 }); // 16 rows, same column
+  const dm = L.cacheSim(col, { size: 32768, line: 64, ways: 1 });
+  eq(dm.counts.conflict, 16, '4 KB rows alias onto only 8 of 512 sets: 16 rows already conflict');
+  const colBig = L.accessPattern('col', 262144, { rowBytes: 4096, cols: 1, passes: 2 }); // 64 rows
+  const dm2 = L.cacheSim(colBig, { size: 32768, line: 64, ways: 1 });
+  eq(dm2.counts.conflict, 64, '64 rows alias onto 8 sets: every second-pass read is a conflict miss');
+  const padded = L.cacheSim(L.accessPattern('col', 262144, { rowBytes: 4096 + 64, cols: 1, passes: 2 }), { size: 32768, line: 64, ways: 1 });
+  eq(padded.counts.hits, 63, 'padding rows by one line (63 rows of 4160 B) removes the aliasing: all second-pass reads hit');
+  eq(padded.counts.conflict, 0, 'no conflict misses after padding');
+}
+
 console.log(`ok — ${n} checks passed`);
+
+
 console.log(`  INT8 per-tensor ${q8.sqnr.toFixed(1)} dB · INT4 tensor ${q4t.sqnr.toFixed(1)} dB · INT4 g32 ${q4g.sqnr.toFixed(1)} dB · MXFP4 ${mx.sqnr.toFixed(1)} dB · NVFP4 ${nv.sqnr.toFixed(1)} dB · gross dies(814 mm²) ${gd.n}`);

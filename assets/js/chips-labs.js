@@ -1,7 +1,7 @@
 /* ============================================================
    Chips Guide — interactive labs (vanilla JS, no dependencies)
    A page opts in with  <div class="lab" data-lab="NAME"></div>
-   NAME ∈ roofline | bits | fit | systolic | wafer | sparsity | quant | atlas
+   NAME ∈ roofline | bits | fit | systolic | wafer | sparsity | quant | cache | atlas
    The arithmetic lives in small pure functions (exported for Node so
    tools/test_labs.js can check them against hand-derived values).
    Accelerator facts come from assets/data/accelerators.json.
@@ -211,6 +211,44 @@
   // ---------- systolic (output-stationary): which k does PE(i,j) consume at cycle t?
   function systolicK(t, i, j, n) { var k = t - i - j; return (k >= 0 && k < n) ? k : -1; }
 
+
+  // ---------- cache simulator: set-associative, LRU, with the "three Cs" of misses
+  // cfg = { size: bytes, line: bytes, ways: n }. Each miss is classified as compulsory
+  // (line never touched before), capacity (a fully-associative LRU cache of the same
+  // size would also miss) or conflict (only the restricted placement made it miss).
+  function cacheSim(addrs, cfg) {
+    var lines = cfg.size / cfg.line, ways = Math.min(cfg.ways, lines), sets = lines / ways;
+    var S = [], seen = {}, full = [], out = new Array(addrs.length), lastSet = new Array(addrs.length);
+    for (var i = 0; i < sets; i++) S.push([]);
+    var c = { hits: 0, compulsory: 0, capacity: 0, conflict: 0 };
+    for (i = 0; i < addrs.length; i++) {
+      var ln = Math.floor(addrs[i] / cfg.line), set = ln % sets, tag = Math.floor(ln / sets), row = S[set];
+      var hitFull = full.indexOf(ln);                       // fully-associative LRU shadow
+      if (hitFull >= 0) full.splice(hitFull, 1); else if (full.length >= lines) full.shift();
+      full.push(ln);
+      var k = row.indexOf(tag);
+      if (k >= 0) { row.splice(k, 1); row.push(tag); out[i] = 'hit'; c.hits++; }
+      else {
+        if (row.length >= ways) row.shift();
+        row.push(tag);
+        out[i] = !seen[ln] ? 'compulsory' : hitFull >= 0 ? 'conflict' : 'capacity';
+        c[out[i]]++;
+      }
+      seen[ln] = true; lastSet[i] = set;
+    }
+    return { outcome: out, counts: c, sets: sets, ways: ways, state: S, setOf: lastSet };
+  }
+  // address traces for the lab: 4-byte elements
+  function accessPattern(kind, ws, opt) {
+    opt = opt || {}; var a = [], i, n = Math.floor(ws / 4), passes = opt.passes || 2;
+    if (kind === 'seq') { for (var p = 0; p < passes; p++) for (i = 0; i < n; i++) a.push(i * 4); }
+    else if (kind === 'col') {
+      var rowBytes = opt.rowBytes || 4096, rows = Math.max(1, Math.floor(ws / rowBytes)), cols = opt.cols || 4;
+      for (p = 0; p < passes; p++) for (var j = 0; j < cols; j++) for (i = 0; i < rows; i++) a.push(i * rowBytes + j * 4);
+    } else if (kind === 'rand') { var R = rng(opt.seed || 7); for (i = 0; i < n * passes; i++) a.push(Math.floor(R() * n) * 4); }
+    return a;
+  }
+
   function gaussian(rand) { var u = 0, v = 0; while (u === 0) u = rand(); v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
   function rng(seed) { var s = seed >>> 0 || 1; return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
 
@@ -218,7 +256,7 @@
     FORMATS: FORMATS, fpDecode: fpDecode, fpRound: fpRound, fpStats: fpStats, intQuant: intQuant,
     attainable: attainable, intensity: intensity, MODELS: MODELS, kvCacheBytes: kvCacheBytes, memoryPlan: memoryPlan,
     grossDies: grossDies, diesPerWaferFormula: diesPerWaferFormula, yieldModels: yieldModels,
-    pruneNM: pruneNM, pruneUnstructured: pruneUnstructured, energyKept: energyKept, quantize: quantize, systolicK: systolicK,
+    pruneNM: pruneNM, pruneUnstructured: pruneUnstructured, energyKept: energyKept, quantize: quantize, systolicK: systolicK, cacheSim: cacheSim, accessPattern: accessPattern,
     rng: rng, gaussian: gaussian
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
@@ -681,6 +719,54 @@
     fresh();
   }
 
+
+  // ============================================================ 9. cache
+  function labCache(root) {
+    var body = frame(root, 'Lab · Cache simulator — lines, sets, ways and the three kinds of miss');
+    var c = canvas(560, 300); body.appendChild(c); var ctx = c.getContext('2d');
+    var p = panel(body), ct = controls(p);
+    var patS = select(ct, 'access pattern', [['seq', 'walk an array, twice'], ['col', 'walk matrix columns'], ['rand', 'random reads']], 'seq');
+    var wsS = select(ct, 'working set', [[4096, '4 KB'], [16384, '16 KB'], [32768, '32 KB'], [65536, '64 KB'], [262144, '256 KB']], 16384);
+    var ct2 = controls(p);
+    var szS = select(ct2, 'cache', [[4096, '4 KB'], [8192, '8 KB'], [32768, '32 KB (an L1)'], [131072, '128 KB']], 32768);
+    var lnS = select(ct2, 'line', [[16, '16 B'], [32, '32 B'], [64, '64 B'], [128, '128 B']], 64);
+    var wyS = select(ct2, 'ways', [[1, '1 (direct-mapped)'], [2, '2'], [4, '4'], [8, '8'], [0, 'fully associative']], 8);
+    var ct3 = controls(p), padC = checkbox(ct3, ' pad matrix rows by one line (columns pattern)', false);
+    var out = readout(p);
+    hint(p, 'Top: the cache after the run, one row per set (first 32 sets), one cell per way; brighter = more recently used. Bottom: the first 640 accesses in order. A miss is <b>compulsory</b> if the line was never loaded, <b>capacity</b> if even a fully-associative cache this size would have missed, and <b>conflict</b> if only the set mapping caused it. Try columns of a 4 KB-wide matrix with a direct-mapped cache, then tick the padding box.');
+    var KC = { hit: C.green, compulsory: C.yellow, capacity: C.blue, conflict: C.red };
+    function draw() {
+      clear(ctx, c);
+      var size = +szS.value, ln = +lnS.value, ways = +wyS.value || size / ln, ws = +wsS.value;
+      var addrs = accessPattern(patS.value, ws, { rowBytes: 4096 + (padC.checked ? ln : 0) });
+      var r = cacheSim(addrs, { size: size, line: ln, ways: ways });
+      // set x way grid
+      var shown = Math.min(r.sets, 32), cw = Math.min(26, 360 / r.ways), rh = Math.min(6.2, 196 / shown), gx = 20, gy = 22;
+      txt(ctx, r.sets + ' sets × ' + r.ways + ' ways × ' + ln + ' B lines' + (r.sets > shown ? '  (first 32 sets shown)' : ''), gx, 10, C.mid, 10);
+      if (r.ways > 64) { txt(ctx, 'fully associative: one set of ' + r.ways + ' ways', gx, gy + 20, C.text, 11); }
+      else for (var s = 0; s < shown; s++) for (var w = 0; w < r.ways; w++) {
+        var row = r.state[s], filled = w < row.length, age = filled ? (w + 1) / row.length : 0;
+        rect(ctx, gx + w * cw, gy + s * rh, cw - 1, Math.max(1, rh - 1), filled ? 'rgba(232,145,106,' + (0.15 + 0.85 * age) + ')' : '#1c1c1c');
+      }
+      // timeline
+      var ty = 236, n = Math.min(addrs.length, 640), per = 80, cs = 6.6;
+      txt(ctx, 'first ' + n + ' accesses (left→right, then down)', gx, ty - 10, C.mid, 10);
+      for (var i = 0; i < n; i++) rect(ctx, gx + (i % per) * cs, ty + Math.floor(i / per) * cs, cs - 1, cs - 1, KC[r.outcome[i]]);
+      // bars
+      var bx = 410, total = addrs.length, keys = ['hit', 'compulsory', 'capacity', 'conflict'], vals = [r.counts.hits, r.counts.compulsory, r.counts.capacity, r.counts.conflict];
+      txt(ctx, 'outcome of ' + total + ' reads', bx, 10, C.mid, 10);
+      keys.forEach(function (k, j) {
+        var y = 30 + j * 46, w = 130 * vals[j] / total;
+        rect(ctx, bx, y, Math.max(1, w), 18, KC[k]); txt(ctx, k + '  ' + fmt(100 * vals[j] / total, 1) + ' %', bx, y + 28, C.text, 10);
+      });
+      out.textContent = 'hit rate          ' + fmt(100 * r.counts.hits / total, 1) + ' %' +
+        '\nmisses            ' + (total - r.counts.hits) + '  (compulsory ' + r.counts.compulsory + ', capacity ' + r.counts.capacity + ', conflict ' + r.counts.conflict + ')' +
+        '\nbytes from memory ' + ((total - r.counts.hits) * ln / 1024).toFixed(1) + ' KB for ' + (total * 4 / 1024).toFixed(1) + ' KB of data actually used';
+    }
+    [patS, wsS, szS, lnS, wyS, padC].forEach(function (x) { x.addEventListener('change', draw); });
+    draw();
+  }
+
   // ============================================================ 8. atlas
   function labAtlas(root, data) {
     var body = frame(root, 'Atlas · ' + data.chips.length + ' accelerators, one table, one scatter');
@@ -769,7 +855,7 @@
   }
 
   // ============================================================ boot
-  var LABS = { roofline: labRoofline, bits: labBits, fit: labFit, systolic: labSystolic, wafer: labWafer, sparsity: labSparsity, quant: labQuant, atlas: labAtlas };
+  var LABS = { roofline: labRoofline, bits: labBits, fit: labFit, systolic: labSystolic, wafer: labWafer, sparsity: labSparsity, quant: labQuant, cache: labCache, atlas: labAtlas };
   var NEEDS_DATA = { roofline: true, fit: true, atlas: true };
   var dataPromise = null;
   function getData() {
