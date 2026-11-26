@@ -148,6 +148,8 @@ navigation:
     url: "/appendix_g_resources"
   - title: "Appendix H — The Life of a Running Computer"
     url: "/appendix_h_how_a_computer_runs"
+  - title: "Appendix I — Caches & Memory Zoo"
+    url: "/appendix_i_memory_and_caches"
 
 defaults:
   - scope:

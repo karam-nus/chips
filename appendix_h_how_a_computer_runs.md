@@ -316,6 +316,8 @@ When you profile a training step and see the GPU sitting at 60% utilization, you
 
 ---
 
+**Next:** [Appendix I — Caches & the Memory Zoo](./appendix_i_memory_and_caches.md) — Every memory on and around a chip, from registers and L1 to HBM, flash and eFuses.
+
 *This appendix is the runtime counterpart to [Chapter 4 — Anatomy of a Processor](./04_anatomy_of_a_processor.md): Chapter 4 shows how one instruction executes; this shows how billions of them get orchestrated into a living, responsive machine.*
 
 [← Back to Table of Contents](./README.md)

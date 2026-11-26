@@ -9,8 +9,8 @@ permalink: /
 
 <div class="stats">
   <div class="stat"><div class="stat-num"><em>35</em></div><div class="stat-label">chapters, transistor to rack</div></div>
-  <div class="stat"><div class="stat-num"><em>8</em></div><div class="stat-label">appendices: fab, foundry, optics, power, packaging</div></div>
-  <div class="stat"><div class="stat-num"><em>8</em></div><div class="stat-label">interactive labs, tested in Node</div></div>
+  <div class="stat"><div class="stat-num"><em>9</em></div><div class="stat-label">appendices: fab, foundry, optics, power, packaging, memory</div></div>
+  <div class="stat"><div class="stat-num"><em>9</em></div><div class="stat-label">interactive labs, tested in Node</div></div>
   <div class="stat"><div class="stat-num"><em>26</em></div><div class="stat-label">accelerators in the atlas, dense rates, sourced</div></div>
   <div class="stat"><div class="stat-num"><em>198</em></div><div class="stat-label">Check Yourself questions with worked answers</div></div>
 </div>
@@ -105,7 +105,7 @@ This guide answers all of that **from first principles** — starting at the tra
 | 34 | [Generational Improvements](./34_generational_improvements.md) | Process nodes, bandwidth growth, and tabulated family histories year over year |
 | 35 | [Where the Industry Is Headed](./35_where_the_industry_is_headed.md) | HBM4, chiplets, CXL tiers, co-packaged optics, in-memory compute, power as the binding constraint |
 | **Interactive** | | |
-| ⚗ | [Interactive Labs](./labs.md) | Roofline, bit explorer, will-it-fit, systolic array, wafer yield, 2:4 sparsity, quantization error |
+| ⚗ | [Interactive Labs](./labs.md) | Roofline, bit explorer, will-it-fit, systolic array, wafer yield, 2:4 sparsity, quantization error, cache simulator |
 | 🗺 | [Accelerator Atlas](./atlas.md) | 26 accelerators on one bandwidth-vs-compute chart, sortable, with sources |
 | **Appendices** | | |
 | A | [How Chips Are Made](./appendix_a_how_chips_are_made.md) | Sand → wafer → fab → EUV lithography → etch/doping → packaging → test; yield & binning |
@@ -116,6 +116,7 @@ This guide answers all of that **from first principles** — starting at the tra
 | F | [Glossary](./appendix_f_glossary.md) | Every acronym and term in one place |
 | G | [Resources](./appendix_g_resources.md) | Books, courses, channels, blogs, papers and tools for going deeper |
 | H | [The Life of a Running Computer](./appendix_h_how_a_computer_runs.md) | What happens at power-on, how interrupts & the scheduler work, what "idle" (HLT/C-states) really is, and who keeps the screen lit |
+| I | [Caches & the Memory Zoo](./appendix_i_memory_and_caches.md) | L1/L2/L3, registers, SRAM vs DRAM vs flash, MRAM/RRAM/PCM, what memory each chip carries, and the small memory chips all over a board |
 
 ## 🗺️ Learning Path
 
@@ -123,7 +124,7 @@ Read the board left to right, then follow the trace down and back. Every chip is
 
 <div class="pcb"><svg viewBox="0 0 900 372" role="img" aria-label="Learning path drawn as a circuit board: eight parts of the guide connected in reading order, plus appendices and interactive labs">
 <text class="silk big" x="34" y="34">CHIPS GUIDE · LEARNING PATH</text><text class="silk dim" x="34" y="50">REV 2026.11 · FOLLOW THE TRACE · CLICK A CHIP</text>
-<text class="silk dim" x="866" y="34" text-anchor="end">8 PARTS · 35 CH · 8 APPX</text>
+<text class="silk dim" x="866" y="34" text-anchor="end">8 PARTS · 35 CH · 9 APPX</text>
 <path class="trace" d="M212,112 L244,112"/>
 <path class="trace" d="M424,112 L456,112"/>
 <path class="trace" d="M636,112 L668,112"/>
@@ -142,8 +143,8 @@ Read the board left to right, then follow the trace down and back. Every chip is
 <circle class="pad" cx="178" cy="343" r="3.2"/>
 <circle class="pad" cx="208" cy="343" r="3.2"/>
 <circle class="pad" cx="239" cy="343" r="3.2"/>
-<text class="ic-label" x="132" y="333" text-anchor="middle">APPENDIX A–H</text>
-<text class="silk dim" x="7" y="315">J1 · fab, foundry, optics, power, packaging…</text></g></a>
+<text class="ic-label" x="132" y="333" text-anchor="middle">APPENDIX A–I</text>
+<text class="silk dim" x="7" y="315">J1 · fab, foundry, power, memory…</text></g></a>
 <a href="./labs.html"><g><rect class="ic-body" x="623" y="320" width="250" height="30" rx="3"/>
 <circle class="pad" cx="641" cy="343" r="3.2"/>
 <circle class="pad" cx="672" cy="343" r="3.2"/>
@@ -154,7 +155,7 @@ Read the board left to right, then follow the trace down and back. Every chip is
 <circle class="pad" cx="824" cy="343" r="3.2"/>
 <circle class="pad" cx="855" cy="343" r="3.2"/>
 <text class="ic-label" x="748" y="333" text-anchor="middle">LABS + ATLAS</text>
-<text class="silk dim" x="623" y="315">J2 · 8 interactive labs, 26 accelerators</text></g></a>
+<text class="silk dim" x="623" y="315">J2 · 9 interactive labs, 26 accelerators</text></g></a>
 <circle class="via" cx="876" cy="112" r="5"/>
 <circle class="via" cx="876" cy="242" r="5"/>
 <a href="./01_what_is_a_chip.html"><g>
@@ -352,7 +353,7 @@ Every chapter follows a **What → Why → Which → When → Where** rhythm, an
   </div>
   <div class="diagram-card orange">
     <div class="card-title">Labs</div>
-    <div class="card-desc">Eight in-page instruments built on pure functions with a Node test suite</div>
+    <div class="card-desc">Nine in-page instruments built on pure functions with a Node test suite</div>
   </div>
   <div class="diagram-card cyan">
     <div class="card-title">Check Yourself + References</div>
@@ -371,6 +372,7 @@ Every chapter follows a **What → Why → Which → When → Where** rhythm, an
 
 | Date | Changes |
 |------|---------|
+| Nov 2026 | Appendix I — Caches & the Memory Zoo, with a cache-simulator lab and a "where does a load go" flowchart |
 | Nov 2026 | Full refresh: every chapter fact-checked against 2025–26 hardware (Blackwell Ultra, Rubin, MI355X/MI455X, Ironwood/TPU 8, Trainium3, HBM4); dense-vs-sparse figures corrected throughout; code outputs re-run; 8 interactive labs, the Accelerator Atlas, 8 SVG flowcharts, generated figures; Check Yourself and References in every chapter; new theme with Part navigation, reading progress and chapter search |
 | May 2026 | Initial release — 35 chapters + 8 appendices |
 

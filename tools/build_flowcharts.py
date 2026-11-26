@@ -347,6 +347,30 @@ CHARTS["boot_loop"] = dict(
 )
 
 
+# Appendix I — where does one load go?
+_m = [26, 100, 186, 272, 358, 444, 530]
+CHARTS["memory_lookup"] = dict(
+    file="appendix_i_memory_and_caches.md", w=780, h=580,
+    title="Where does one load instruction find its data? (a modern CPU core)",
+    caption="Each \"no\" costs roughly 3–10× more time than the level above it. A GPU follows the same path with registers, L1/shared memory, L2 and HBM, but every step takes several times longer, which is why GPUs hide latency with thousands of threads instead.",
+    nodes=[
+        N("s", 230, _m[0], "Core executes a load", kind="start", sub="virtual address", w=220),
+        N("tlb", 230, _m[1], "Translate address", k="cyan", sub=["TLB hit ≈ free; miss → page-table walk", "(itself cached in L1/L2)"], w=300, link="./10_memory_management.html"),
+        N("d1", 230, _m[2], ["In L1 data cache?"], kind="dec", sub="32–64 KB per core, SRAM"),
+        N("d2", 230, _m[3], ["In L2 cache?"], kind="dec", sub="1–3 MB per core, SRAM"),
+        N("d3", 230, _m[4], ["In L3 / last-level cache?"], kind="dec", sub="tens–hundreds of MB, shared"),
+        N("d4", 230, _m[5], ["In DRAM?"], kind="dec", sub="GBs–TBs, DDR5 / LPDDR5X / HBM"),
+        N("l1", 610, _m[2], "L1 hit · ~1 ns", kind="leaf", k="green", sub="4–5 cycles", w=250),
+        N("l2", 610, _m[3], "L2 hit · ~3–5 ns", kind="leaf", k="teal", sub="~12–16 cycles", w=250),
+        N("l3", 610, _m[4], "L3 hit · ~10–20 ns", kind="leaf", k="blue", sub="~40–70 cycles", w=250),
+        N("dram", 610, _m[5], "DRAM · ~80–120 ns", kind="leaf", k="purple", sub="~300 cycles; line also filled into L3/L2/L1", w=250, link="./09_memory_types.html"),
+        N("ssd", 230, _m[6], "Page fault → OS reads from SSD", kind="leaf", k="red", sub="~10–100 µs: a million cycles", w=300, link="./appendix_h_how_a_computer_runs.html"),
+    ],
+    edges=[E("s", "tlb"), E("tlb", "d1")] + [E(f"d{i}", f"d{i+1}", label="miss") for i in range(1, 4)] + [E("d4", "ssd", label="no")] +
+          [E(f"d{i}", t, "r", "l", label="hit") for i, t in zip(range(1, 5), ["l1", "l2", "l3", "dram"])],
+)
+
+
 # --------------------------------------------------------------------------- inject
 def inject(check=False):
     stale = []
